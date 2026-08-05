@@ -1,0 +1,405 @@
+{% extends 'base.html' %}
+{% block title %}Продукция | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-package"></use></svg> Готовая продукция{% endblock %}
+
+{% block extra_css %}
+<style>
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    table th { background: var(--surface-alt); padding: 12px; text-align: left; font-weight: 600; border-bottom: 2px solid var(--line-strong); }
+    table td { padding: 12px; border-bottom: 1px solid var(--line); }
+    table tr:hover { background: var(--surface-alt); }
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 500px;
+        width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+    .modal-content h2 { margin-bottom: 20px; color: var(--slate-800); }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+    .form-group input, .form-group select {
+        width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; font-family: inherit; }
+    .form-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .form-actions button { flex: 1; padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: var(--slate-800); color: white; }
+    .btn-primary:hover { background: var(--slate-900); }
+    .btn-secondary { background: var(--line-strong); color: var(--ink); }
+    .btn-secondary:hover { background: #ccc; }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 3px; font-size: 12px; background: var(--info-soft); color: var(--info); }
+    .badge-archived { background: var(--stop-soft); color: var(--stop); }
+    .loading { text-align: center; padding: 40px; color: var(--ink-3); }
+    .error { background: var(--stop-soft); color: var(--stop); padding: 15px; border-radius: 4px; border-left: 4px solid var(--stop); margin-bottom: 20px; }
+    .success { background: var(--ok-soft); color: var(--ok); padding: 15px; border-radius: 4px; border-left: 4px solid var(--ok); margin-bottom: 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="toolbar">
+    <span class="search-wrap"><svg class="ic"><use href="#i-search"></use></svg><input type="text" id="search" placeholder="Поиск по наименованию или артикулу" style="flex: 1; min-width: 200px;"></span>
+    <select id="categoryFilter">
+        <option value="">Все категории</option>
+        <option value="shoes">Обувь</option>
+        <option value="clothing">Одежда</option>
+        <option value="accessories">Аксессуары</option>
+        <option value="equipment">Инвентарь</option>
+    </select>
+    <button class="btn btn-primary" onclick="openAddModal()">+ Добавить продукцию</button>
+</div>
+
+<div id="loading" class="loading">Загрузка продукции...</div>
+
+<div id="content" style="display: none;">
+    <table>
+        <thead>
+            <tr>
+                <th>Артикул</th>
+                <th>Наименование</th>
+                <th>Категория</th>
+                <th>Размер</th>
+                <th>Цвет</th>
+                <th>На складе</th>
+                <th>Себест.</th>
+                <th>Цена</th>
+                <th>Статус</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody id="productsBody"></tbody>
+    </table>
+</div>
+
+<div class="modal" id="productModal">
+    <div class="modal-content">
+        <h2 id="modalTitle">Добавить продукцию</h2>
+        <form id="productForm">
+            <div class="form-group">
+                <label>Артикул *</label>
+                <input type="text" id="article_number" required>
+            </div>
+            <div class="form-group">
+                <label>Наименование *</label>
+                <input type="text" id="name" required>
+            </div>
+            <div class="form-group">
+                <label>Категория *</label>
+                <select id="category" required>
+                    <option value="">Выберите</option>
+                    <option value="shoes">Обувь</option>
+                    <option value="clothing">Одежда</option>
+                    <option value="accessories">Аксессуары</option>
+                    <option value="equipment">Инвентарь</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Размер *</label>
+                <input type="text" id="size" required placeholder="42, M, XL...">
+            </div>
+            <div class="form-group">
+                <label>Цвет *</label>
+                <input type="text" id="color" required>
+            </div>
+            <div class="form-group">
+                <label>Себестоимость (руб.) *</label>
+                <input type="number" id="cost" step="0.01" min="0" required>
+            </div>
+            <div class="form-group">
+                <label>Отпускная цена (руб.) *</label>
+                <input type="number" id="selling_price" step="0.01" min="0" required>
+            </div>
+            <div class="form-group">
+                <label>Статус</label>
+                <select id="status">
+                    <option value="active">Выпускается</option>
+                    <option value="archived">Снят с производства</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Описание (для витрины магазина)</label>
+                <textarea id="description" rows="3" style="width:100%; padding:10px; border:1px solid var(--line-strong); border-radius:4px; font-family:inherit; resize:vertical;"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Фото товара</label>
+                <div style="font-size:12px; color:var(--info); background:var(--info-soft); padding:8px 10px; border-radius:4px; margin-bottom:6px;">
+                    <svg class="ic"><use href="#i-ruler"></use></svg> Рекомендуемое фото: <b>1000 × 750 px</b> (горизонтальное, 4:3), на белом фоне.<br>
+                    Размер файла не важен — система сама сожмёт крупное фото при загрузке.
+                </div>
+                <input type="file" id="photo" accept="image/*" style="width:100%; padding:8px; border:1px solid var(--line-strong); border-radius:4px;">
+                <div id="photoHint" style="font-size:12px; color:var(--ink-3); margin-top:4px;"></div>
+                <div id="photoPreview" style="margin-top:8px;"></div>
+            </div>
+            <div class="form-group">
+                <label>Видео товара</label>
+                <input type="file" id="video" accept="video/*" style="width:100%; padding:8px; border:1px solid var(--line-strong); border-radius:4px;">
+                <div id="videoHint" style="font-size:12px; color:var(--ink-3); margin-top:4px;"></div>
+                <div id="videoPreview" style="margin-top:8px;"></div>
+            </div>
+            <div id="initialStockBlock" style="border-top:1px dashed var(--line-strong); padding-top:15px; margin-top:5px;">
+                <p style="font-size:13px; color:var(--ink-2); margin-bottom:10px;">Начальный остаток (необязательно):</p>
+                <div class="form-group">
+                    <label>Количество на складе</label>
+                    <input type="number" id="initial_stock" step="0.01" min="0" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label>Склад</label>
+                    <select id="initial_warehouse"><option value="">— не задавать —</option></select>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="closeModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const categoryNames = {'shoes': 'Обувь', 'clothing': 'Одежда', 'accessories': 'Аксессуары', 'equipment': 'Инвентарь'};
+    const statusNames = {'active': 'Выпускается', 'archived': 'Снят с производства'};
+    let allProducts = [];
+    let stockByProduct = {};
+    let currentEditId = null;
+
+    async function loadProducts() {
+        try {
+            const [prodData, stockData] = await Promise.all([
+                apiCallAll('/products/'),
+                apiCallAll('/stock/')
+            ]);
+            allProducts = prodData;
+
+            stockByProduct = {};
+            stockData.forEach(s => {
+                if (s.product) {
+                    stockByProduct[s.product] = (stockByProduct[s.product] || 0) + parseFloat(s.quantity);
+                }
+            });
+
+            renderTable();
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+        } catch (error) {
+            document.getElementById('loading').innerHTML = '';
+            showMessage('Ошибка загрузки: ' + error.message, 'error');
+        }
+    }
+
+    function renderTable() {
+        const search = document.getElementById('search').value.toLowerCase();
+        const category = document.getElementById('categoryFilter').value;
+        const filtered = allProducts.filter(p =>
+            (search === '' || p.name.toLowerCase().includes(search) || p.article_number.toLowerCase().includes(search)) &&
+            (category === '' || p.category === category)
+        );
+
+        if (filtered.length === 0) {
+            document.getElementById('productsBody').innerHTML =
+                '<tr><td colspan="10" style="text-align:center; color:var(--ink-3); padding:30px;">Продукция не найдена</td></tr>';
+            return;
+        }
+
+        document.getElementById('productsBody').innerHTML = filtered.map(p => `
+            <tr>
+                <td><strong>${esc(p.article_number)}</strong></td>
+                <td>${esc(p.name)}</td>
+                <td><span class="badge">${categoryNames[p.category] || p.category}</span></td>
+                <td>${esc(p.size)}</td>
+                <td>${esc(p.color)}</td>
+                <td><strong style="color:${(stockByProduct[p.id]||0) > 0 ? 'var(--ok)' : 'var(--ink-3)'}">${stockByProduct[p.id] || 0}</strong> шт.</td>
+                <td>${p.cost}</td>
+                <td>${p.selling_price}</td>
+                <td><span class="badge ${p.status === 'archived' ? 'badge-archived' : ''}">${statusNames[p.status] || p.status}</span></td>
+                <td><div class="row-actions">
+                    <button class="act act-edit" title="Редактировать" onclick="editProduct(${p.id})"><svg class="ic"><use href="#i-edit"></use></svg></button>
+                    <button class="act act-copy" title="Копировать" onclick="copyProduct(${p.id})"><svg class="ic"><use href="#i-clipboard"></use></svg></button>
+                    <button class="act act-del" title="Удалить" onclick="deleteProduct(${p.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>
+                </div></td>
+            </tr>
+        `).join('');
+    }
+
+    async function openAddModal() {
+        currentEditId = null;
+        document.getElementById('modalTitle').textContent = 'Добавить продукцию';
+        document.getElementById('productForm').reset();
+        document.getElementById('photoHint').textContent = '';
+        document.getElementById('videoHint').textContent = '';
+        document.getElementById('photoPreview').innerHTML = '';
+        document.getElementById('videoPreview').innerHTML = '';
+        document.getElementById('initialStockBlock').style.display = 'block';
+        // Загрузить список складов
+        try {
+            const wh = await apiCallAll('/warehouses/');
+            document.getElementById('initial_warehouse').innerHTML =
+                '<option value="">— не задавать —</option>' +
+                wh.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+        } catch (e) { /* если складов нет — оставим пустой список */ }
+        document.getElementById('productModal').classList.add('active');
+    }
+
+    function editProduct(id) {
+        const p = allProducts.find(x => x.id === id);
+        if (!p) return;
+        currentEditId = id;
+        document.getElementById('modalTitle').textContent = 'Редактировать продукцию';
+        document.getElementById('initialStockBlock').style.display = 'none';
+        document.getElementById('article_number').value = p.article_number;
+        document.getElementById('name').value = p.name;
+        document.getElementById('category').value = p.category;
+        document.getElementById('size').value = p.size;
+        document.getElementById('color').value = p.color;
+        document.getElementById('cost').value = p.cost;
+        document.getElementById('selling_price').value = p.selling_price;
+        document.getElementById('status').value = p.status;
+        document.getElementById('description').value = p.description || '';
+        // Сброс полей файлов + подсказки о наличии текущих
+        document.getElementById('photo').value = '';
+        document.getElementById('video').value = '';
+        document.getElementById('photoHint').textContent = p.photo
+            ? 'Текущее фото загружено. Выберите новое, чтобы заменить.' : 'Фото не загружено.';
+        document.getElementById('videoHint').textContent = p.video
+            ? 'Текущее видео загружено. Выберите новое, чтобы заменить.' : 'Видео не загружено.';
+        // Превью текущих файлов
+        document.getElementById('photoPreview').innerHTML = p.photo
+            ? `<img src="${p.photo}" style="max-width:100%; max-height:180px; border-radius:6px; border:1px solid var(--line);">` : '';
+        document.getElementById('videoPreview').innerHTML = p.video
+            ? `<video src="${p.video}" controls style="max-width:100%; max-height:200px; border-radius:6px; background:#000;"></video>` : '';
+        document.getElementById('productModal').classList.add('active');
+    }
+
+    async function copyProduct(id) {
+        const p = allProducts.find(x => x.id === id);
+        if (!p) return;
+        currentEditId = null;  // создаём НОВЫЙ товар, а не редактируем
+        document.getElementById('modalTitle').textContent = 'Копия товара (заполните артикул)';
+        document.getElementById('productForm').reset();
+        // Подставляем данные исходного товара
+        document.getElementById('article_number').value = '';  // артикул уникальный — вводим новый
+        document.getElementById('name').value = p.name;
+        document.getElementById('category').value = p.category;
+        document.getElementById('size').value = p.size;
+        document.getElementById('color').value = p.color;
+        document.getElementById('cost').value = p.cost;
+        document.getElementById('selling_price').value = p.selling_price;
+        document.getElementById('status').value = p.status;
+        document.getElementById('description').value = p.description || '';
+        // Фото/видео не копируются автоматически (загрузите при необходимости)
+        document.getElementById('photo').value = '';
+        document.getElementById('video').value = '';
+        document.getElementById('photoHint').textContent = 'Фото не копируется — загрузите при необходимости.';
+        document.getElementById('videoHint').textContent = '';
+        document.getElementById('photoPreview').innerHTML = '';
+        document.getElementById('videoPreview').innerHTML = '';
+        // Показываем блок начального остатка (как при создании нового)
+        document.getElementById('initialStockBlock').style.display = 'block';
+        try {
+            const wh = await apiCallAll('/warehouses/');
+            document.getElementById('initial_warehouse').innerHTML =
+                '<option value="">— не задавать —</option>' +
+                wh.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+        } catch (e) {}
+        // Подсказка-акцент на артикул
+        showMessage('<svg class="ic"><use href="#i-clipboard"></use></svg> Данные скопированы. Измените цвет/размер и введите новый артикул.', 'success');
+        document.getElementById('article_number').focus();
+        document.getElementById('productModal').classList.add('active');
+    }
+
+    function closeModal() {
+        document.getElementById('productModal').classList.remove('active');
+    }
+
+    async function saveProduct(e) {
+        e.preventDefault();
+
+        // Используем FormData — она нужна для отправки файлов (фото/видео).
+        // Обычный JSON не умеет передавать файлы.
+        const fd = new FormData();
+        fd.append('article_number', document.getElementById('article_number').value);
+        fd.append('name', document.getElementById('name').value);
+        fd.append('category', document.getElementById('category').value);
+        fd.append('size', document.getElementById('size').value);
+        fd.append('color', document.getElementById('color').value);
+        fd.append('cost', document.getElementById('cost').value);
+        fd.append('selling_price', document.getElementById('selling_price').value);
+        fd.append('status', document.getElementById('status').value);
+        fd.append('description', document.getElementById('description').value);
+
+        const photo = document.getElementById('photo').files[0];
+        const video = document.getElementById('video').files[0];
+        if (photo) fd.append('photo', photo);
+        if (video) fd.append('video', video);
+
+        // При создании — добавить начальный остаток, если задан
+        if (!currentEditId) {
+            const stock = document.getElementById('initial_stock').value;
+            const wh = document.getElementById('initial_warehouse').value;
+            if (stock && parseFloat(stock) > 0 && wh) {
+                fd.append('initial_stock', stock);
+                fd.append('initial_warehouse', wh);
+            }
+        }
+
+        const url = currentEditId ? `/api/products/${currentEditId}/` : '/api/products/';
+        const method = currentEditId ? 'PATCH' : 'POST';
+
+        try {
+            const res = await fetch(url, {
+                method: method,
+                headers: { 'X-CSRFToken': getCookie('csrftoken') },
+                body: fd  // без Content-Type — браузер сам проставит multipart
+            });
+            if (!res.ok) {
+                let msg = `${res.status}`;
+                try { const err = await res.json(); msg = err.detail || JSON.stringify(err); } catch (e) {}
+                throw new Error(msg);
+            }
+            showMessage(currentEditId ? 'Продукция обновлена' : 'Продукция добавлена', 'success');
+            closeModal();
+            loadProducts();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    async function deleteProduct(id) {
+        if (!confirm('Удалить эту позицию продукции?')) return;
+        try {
+            await apiCall(`/products/${id}/`, 'DELETE');
+            showMessage('Продукция удалена', 'success');
+            loadProducts();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    function showMessage(text, type) {
+        const msg = document.getElementById('message');
+        msg.innerHTML = `<div class="${type}">${text}</div>`;
+        setTimeout(() => { msg.innerHTML = ''; }, 4000);
+    }
+
+    document.getElementById('search').addEventListener('input', renderTable);
+    document.getElementById('categoryFilter').addEventListener('change', renderTable);
+    document.getElementById('productForm').addEventListener('submit', saveProduct);
+
+    // Живое превью при выборе нового файла
+    document.getElementById('photo').addEventListener('change', function() {
+        const file = this.files[0];
+        if (file) {
+            const url = URL.createObjectURL(file);
+            document.getElementById('photoPreview').innerHTML =
+                `<img src="${url}" style="max-width:100%; max-height:180px; border-radius:6px; border:1px solid var(--line);">`;
+        }
+    });
+    document.getElementById('video').addEventListener('change', function() {
+        const file = this.files[0];
+        if (file) {
+            const url = URL.createObjectURL(file);
+            document.getElementById('videoPreview').innerHTML =
+                `<video src="${url}" controls style="max-width:100%; max-height:200px; border-radius:6px; background:#000;"></video>`;
+        }
+    });
+
+    loadProducts();
+</script>
+{% endblock %}

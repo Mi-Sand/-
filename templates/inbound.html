@@ -1,0 +1,513 @@
+{% extends 'base.html' %}
+{% block title %}Приходные документы | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-inbound"></use></svg> Приходные документы{% endblock %}
+
+{% block extra_css %}
+<style>
+    .doc-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+    }
+    .doc-card {
+        background: white;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        padding: 20px;
+        transition: all 0.2s;
+    }
+    .doc-card:hover {
+        border-color: var(--slate-800);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .doc-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        margin-bottom: 15px;
+    }
+    .doc-number {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--slate-800);
+    }
+    .doc-status {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+    .status-new {
+        background: var(--warn-soft);
+        color: var(--warn);
+    }
+    .status-processed {
+        background: var(--ok-soft);
+        color: var(--ok);
+    }
+    .doc-info {
+        font-size: 13px;
+        color: var(--ink-2);
+        margin-bottom: 10px;
+    }
+    .doc-info strong {
+        color: var(--ink);
+    }
+    .doc-items {
+        background: var(--surface-alt);
+        padding: 12px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+    .doc-item {
+        padding: 6px 0;
+        font-size: 13px;
+        border-bottom: 1px solid var(--line);
+    }
+    .doc-item:last-child {
+        border-bottom: none;
+    }
+    .loading {
+        text-align: center;
+        padding: 40px;
+        color: var(--ink-3);
+    }
+    .empty {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--ink-3);
+    }
+    .alert {
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        border-left: 4px solid;
+    }
+    .alert-success {
+        background: var(--ok-soft);
+        color: var(--ok);
+        border-color: var(--ok);
+    }
+    .alert-error {
+        background: var(--stop-soft);
+        color: var(--stop);
+        border-color: var(--stop);
+    }
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 600px;
+        width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+    .modal-content h2 { margin-bottom: 20px; color: var(--slate-800); }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+    .form-group input, .form-group select {
+        width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; font-family: inherit; }
+    .form-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .form-actions button { flex: 1; padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: var(--slate-800); color: white; }
+    .btn-primary:hover { background: var(--slate-900); }
+    .btn-secondary { background: var(--line-strong); color: var(--ink); }
+    .btn-secondary:hover { background: #ccc; }
+    /* Кнопки в карточке документа: по содержимому, а не во всю ширину —
+       растянутые на пол-экрана «Отменить» и «Просмотр» выглядят громоздко
+       и сбивают внимание с самих данных документа. */
+    .doc-actions {
+        display: flex; gap: 7px; flex-wrap: wrap;
+        padding-top: 12px; margin-top: 12px;
+        border-top: 1px solid var(--line);
+    }
+    .btn-small {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 12px;
+        border: 1px solid var(--line-strong);
+        background: var(--surface);
+        color: var(--ink-2);
+        border-radius: var(--r);
+        cursor: pointer;
+        font: inherit; font-size: 12.5px; font-weight: 550;
+        transition: background .12s, border-color .12s, color .12s;
+    }
+    .btn-small:hover { background: var(--surface-alt); color: var(--ink); }
+    .btn-small .ic, .btn-small .ic-sm { width: 14px; height: 14px; }
+    /* Проведение — основное действие, поэтому единственное залитое */
+    .btn-success { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .btn-success:hover { filter: brightness(.93); background: var(--ok); color: #fff; }
+    .btn-info:hover { border-color: #A8C8E4; background: var(--info-soft); color: var(--info); }
+    .btn-danger:hover { border-color: #E4B8B4; background: var(--stop-soft); color: var(--stop); }
+    .btn-warn:hover { border-color: #E8D5A6; background: var(--warn-soft); color: var(--warn); }
+    .btn-small:disabled { opacity: .5; cursor: not-allowed; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="toolbar">
+    <span class="search-wrap"><svg class="ic"><use href="#i-search"></use></svg><input type="text" id="search" placeholder="Поиск по номеру документа" style="flex:1; min-width:200px;"></span>
+    <select id="filterStatus">
+        <option value="">Все документы</option>
+        <option value="false">Не проведены</option>
+        <option value="true">Проведены</option>
+    </select>
+    <button class="btn btn-ghost" onclick="loadDocuments()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
+    <button class="btn btn-primary" onclick="openCreateModal()">+ Новый приход</button>
+</div>
+
+<div id="loading" class="loading">Загрузка документов...</div>
+
+<div id="content" style="display: none;">
+    <div class="doc-list" id="docList">
+    </div>
+</div>
+
+<!-- Модальное окно для создания документа -->
+<div class="modal" id="createModal">
+    <div class="modal-content" style="max-width: 600px; max-height: 90vh; overflow-y: auto;">
+        <h2><svg class="ic"><use href="#i-inbound"></use></svg> Новый приходный документ</h2>
+        <form id="createForm">
+            <div class="form-group">
+                <label>Номер документа *</label>
+                <input type="text" id="doc_number" placeholder="П-001" required>
+            </div>
+            <div class="form-group">
+                <label>Дата *</label>
+                <input type="date" id="doc_date" required>
+            </div>
+            <div class="form-group">
+                <label>Поставщик *</label>
+                <select id="supplier" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
+                    <option value="">Загрузка...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Склад *</label>
+                <select id="warehouse" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
+                    <option value="">Загрузка...</option>
+                </select>
+            </div>
+            
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--line-strong);">
+            
+            <div id="itemsList"></div>
+            
+            <button type="button" onclick="addItemRow()" style="width: 100%; padding: 10px; margin: 10px 0; background: var(--info-soft); color: var(--info); border: none; border-radius: 4px; cursor: pointer;">+ Добавить товар</button>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="closeCreateModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно просмотра документа -->
+<div class="modal" id="viewModal">
+    <div class="modal-content" style="max-width: 600px; max-height: 90vh; overflow-y: auto;">
+        <h2 id="viewTitle">Приходный документ</h2>
+        <div id="viewBody" style="margin: 15px 0;"></div>
+        <div class="form-actions">
+            <button type="button" class="btn-secondary" onclick="closeViewModal()" style="flex: 1;">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let itemRowCount = 0;
+    
+    async function loadDocuments() {
+        try {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('content').style.display = 'none';
+            
+            const filterStatus = document.getElementById('filterStatus').value;
+            let url = '/inbound-documents/';
+            if (filterStatus !== '') {
+                url += `?processed=${filterStatus}`;
+            }
+
+            let docs = await apiCallAll(url);
+
+            // Фильтр по номеру документа (поиск)
+            const search = document.getElementById('search').value.toLowerCase().trim();
+            if (search) {
+                docs = docs.filter(d => d.doc_number.toLowerCase().includes(search));
+            }
+            
+            const html = docs.map(doc => `
+                <div class="doc-card">
+                    <div class="doc-header">
+                        <div class="doc-number">${esc(doc.doc_number)}</div>
+                        <span class="doc-status ${doc.processed ? 'status-processed' : 'status-new'}">
+                            ${doc.processed ? 'Проведён' : '<svg class="ic"><use href="#i-clock"></use></svg> Не проведён'}
+                        </span>
+                    </div>
+                    <div class="doc-info">
+                        <svg class="ic"><use href="#i-calendar"></use></svg> ${doc.doc_date}<br>
+                        <svg class="ic"><use href="#i-factory"></use></svg> ${esc(doc.supplier_name)}<br>
+                        <svg class="ic"><use href="#i-box"></use></svg> ${esc(doc.warehouse_name)}<br>
+                        <svg class="ic"><use href="#i-ruble"></use></svg> Сумма: ${doc.total_sum} руб.
+                    </div>
+                    <div class="doc-items">
+                        ${doc.items.map(item => `
+                            <div class="doc-item">
+                                ${esc(item.item_name)}: ${item.quantity} × ${item.unit_price} руб.
+                                ${item.batch_number ? `<br><small>Партия: ${esc(item.batch_number)}</small>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="doc-actions">
+                        ${!doc.processed ? `
+                            <button class="btn-small btn-success" onclick="processDocument(${doc.id})">
+                                <svg class="ic"><use href="#i-check"></use></svg> Провести
+                            </button>
+                        ` : `
+                            <button class="btn-small btn-warn" onclick="unprocessDocument(${doc.id})">
+                                <svg class="ic"><use href="#i-undo"></use></svg> Отменить
+                            </button>
+                        `}
+                        <button class="btn-small btn-info" onclick="viewDocument(${doc.id})">
+                            <svg class="ic"><use href="#i-eye"></use></svg> Просмотр
+                        </button>
+                        ${!doc.processed ? `
+                            <button class="btn-small btn-danger" onclick="deleteDocument(${doc.id})">
+                                <svg class="ic"><use href="#i-trash"></use></svg> Удалить
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+            
+            document.getElementById('docList').innerHTML = html || '<div class="empty">Документов не найдено</div>';
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    async function processDocument(id) {
+        if (!confirm('Провести документ и обновить остатки?')) return;
+        try {
+            await apiCall(`/inbound-documents/${id}/process/`, 'POST', {});
+            showMessage('Документ проведён успешно', 'success');
+            loadDocuments();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    async function unprocessDocument(id) {
+        if (!confirm('Отменить проведение? Оприходованный товар будет списан со склада.')) return;
+        try {
+            await apiCall(`/inbound-documents/${id}/unprocess/`, 'POST', {});
+            showMessage('Проведение отменено, остатки откачены', 'success');
+            loadDocuments();
+        } catch (error) {
+            showMessage('' + error.message, 'error');
+        }
+    }
+
+    async function deleteDocument(id) {
+        if (!confirm('Удалить документ?')) return;
+        try {
+            await apiCall(`/inbound-documents/${id}/`, 'DELETE');
+            showMessage('Документ удалён', 'success');
+            loadDocuments();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    function showMessage(text, type) {
+        const msg = document.getElementById('message');
+        msg.innerHTML = `<div class="alert alert-${type.includes('') ? 'error' : 'success'}">${text}</div>`;
+        setTimeout(() => { msg.innerHTML = ''; }, 4000);
+    }
+
+    async function openCreateModal() {
+        // Загрузить поставщиков и склады
+        try {
+            const suppliers = await apiCallAll('/suppliers/');
+            const warehouses = await apiCallAll('/warehouses/');
+            
+            const supplierHtml = suppliers.map(s => 
+                `<option value="${s.id}">${esc(s.name)}</option>`
+            ).join('');
+            const warehouseHtml = warehouses.map(w => 
+                `<option value="${w.id}">${esc(w.name)}</option>`
+            ).join('');
+            
+            document.getElementById('supplier').innerHTML = supplierHtml;
+            document.getElementById('warehouse').innerHTML = warehouseHtml;
+            
+            document.getElementById('doc_date').valueAsDate = new Date();
+            itemRowCount = 0;
+            document.getElementById('itemsList').innerHTML = '';
+            addItemRow();
+            
+            document.getElementById('createModal').classList.add('active');
+        } catch (error) {
+            showMessage('Ошибка загрузки: ' + error.message, 'error');
+        }
+    }
+
+    function addItemRow() {
+        itemRowCount++;
+        const row = `
+            <div style="background: var(--surface-alt); padding: 12px; border-radius: 4px; margin-bottom: 10px;" class="item-row">
+                <div class="form-group">
+                    <label>Тип *</label>
+                    <select class="type-select" style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
+                        <option value="material">Материал</option>
+                        <option value="product">Продукция</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Товар *</label>
+                    <select class="material-select" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
+                        <option value="">Загрузка...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Количество *</label>
+                    <input type="number" class="quantity-input" step="0.01" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
+                </div>
+                <div class="form-group">
+                    <label>Цена за ед. *</label>
+                    <input type="number" class="price-input" step="0.01" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
+                </div>
+                <div class="form-group">
+                    <label>Партия</label>
+                    <input type="text" class="batch-input" style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
+                </div>
+                <button type="button" onclick="this.parentElement.remove()" style="width: 100%; padding: 8px; background: var(--stop-soft); color: var(--stop); border: none; border-radius: 4px; cursor: pointer;"><svg class="ic"><use href="#i-trash"></use></svg> Удалить строку</button>
+            </div>
+        `;
+        document.getElementById('itemsList').insertAdjacentHTML('beforeend', row);
+
+        const lastRow = document.querySelector('.item-row:last-child');
+        const typeSelect = lastRow.querySelector('.type-select');
+        const itemSelect = lastRow.querySelector('.material-select');
+
+        function loadItems() {
+            const type = typeSelect.value;
+            const endpoint = type === 'product' ? '/products/' : '/materials/';
+            itemSelect.innerHTML = '<option value="">Загрузка...</option>';
+            apiCallAll(endpoint).then(data => {
+                const label = type === 'product' ? 'продукцию' : 'материал';
+                itemSelect.innerHTML = `<option value="">Выберите ${label}...</option>` +
+                    data.map(x => {
+                        const name = type === 'product' ? `${esc(x.name)} (${esc(x.article_number)})` : x.name;
+                        return `<option value="${x.id}">${name}</option>`;
+                    }).join('');
+            });
+        }
+
+        typeSelect.addEventListener('change', loadItems);
+        loadItems();
+    }
+
+    function closeCreateModal() {
+        document.getElementById('createModal').classList.remove('active');
+    }
+
+    async function viewDocument(id) {
+        try {
+            const doc = await apiCall(`/inbound-documents/${id}/`);
+            document.getElementById('viewTitle').textContent =
+                `Приходный документ ${esc(doc.doc_number)}`;
+            const itemsHtml = doc.items.map(item => `
+                <div class="doc-item">
+                    ${esc(item.item_name)}: ${item.quantity} × ${item.unit_price} руб.
+                    ${item.batch_number ? `<br><small>Партия: ${esc(item.batch_number)}</small>` : ''}
+                </div>
+            `).join('');
+            document.getElementById('viewBody').innerHTML = `
+                <p><strong>Дата:</strong> ${doc.doc_date}</p>
+                <p><strong>Поставщик:</strong> ${esc(doc.supplier_name)}</p>
+                <p><strong>Склад:</strong> ${esc(doc.warehouse_name)}</p>
+                <p><strong>Статус:</strong> ${doc.processed ? 'Проведён' : '<svg class="ic"><use href="#i-clock"></use></svg> Не проведён'}</p>
+                <p><strong>Сумма:</strong> ${doc.total_sum} руб.</p>
+                <div class="doc-items" style="margin-top: 10px;">${itemsHtml}</div>
+            `;
+            document.getElementById('viewModal').classList.add('active');
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    function closeViewModal() {
+        document.getElementById('viewModal').classList.remove('active');
+    }
+
+    async function saveInboundDocument(e) {
+        e.preventDefault();
+
+        const supplierId = document.getElementById('supplier').value;
+        const warehouseId = document.getElementById('warehouse').value;
+
+        if (!supplierId || !warehouseId) {
+            showMessage('Выберите поставщика и склад', 'error');
+            return;
+        }
+
+        const rows = document.querySelectorAll('.item-row');
+        if (rows.length === 0) {
+            showMessage('Добавьте хотя бы одну строку товара', 'error');
+            return;
+        }
+
+        const items = [];
+        for (const row of rows) {
+            const itemType = row.querySelector('.type-select').value;
+            const itemId = row.querySelector('.material-select').value;
+            const quantity = row.querySelector('.quantity-input').value;
+            const unitPrice = row.querySelector('.price-input').value;
+            const batchNumber = row.querySelector('.batch-input').value;
+
+            if (!itemId || !quantity || !unitPrice) {
+                showMessage('Заполните товар, количество и цену во всех строках', 'error');
+                return;
+            }
+
+            const item = {
+                quantity: parseFloat(quantity),
+                unit_price: parseFloat(unitPrice),
+                batch_number: batchNumber || ''
+            };
+            if (itemType === 'product') {
+                item.product = parseInt(itemId);
+            } else {
+                item.material = parseInt(itemId);
+            }
+            items.push(item);
+        }
+
+        const data = {
+            doc_number: document.getElementById('doc_number').value,
+            doc_date: document.getElementById('doc_date').value,
+            supplier: parseInt(supplierId),
+            warehouse: parseInt(warehouseId),
+            items: items
+        };
+
+        try {
+            await apiCall('/inbound-documents/', 'POST', data);
+            showMessage('Документ создан', 'success');
+            closeCreateModal();
+            loadDocuments();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    document.getElementById('createForm').addEventListener('submit', saveInboundDocument);
+    document.getElementById('filterStatus').addEventListener('change', loadDocuments);
+    document.getElementById('search').addEventListener('input', loadDocuments);
+    loadDocuments();
+</script>
+{% endblock %}

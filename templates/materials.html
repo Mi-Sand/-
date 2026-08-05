@@ -1,0 +1,355 @@
+{% extends 'base.html' %}
+{% block title %}Материалы | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-box"></use></svg> Материалы{% endblock %}
+
+{% block extra_css %}
+<style>
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
+    table th {
+        background: var(--surface-alt);
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid var(--line-strong);
+    }
+    table td {
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+    }
+    table tr:hover {
+        background: var(--surface-alt);
+    }
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+    }
+    .modal.active {
+        display: flex;
+    }
+    .modal-content {
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        max-width: 500px;
+        width: 90%;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    .modal-content h2 {
+        margin-bottom: 20px;
+        color: var(--slate-800);
+    }
+    .form-group {
+        margin-bottom: 15px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 4px;
+        font-family: inherit;
+    }
+    .form-group textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+    .form-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .form-actions button {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+    }
+    .btn-primary {
+        background: var(--slate-800);
+        color: white;
+    }
+    .btn-primary:hover {
+        background: var(--slate-900);
+    }
+    .btn-secondary {
+        background: var(--line-strong);
+        color: var(--ink);
+    }
+    .btn-secondary:hover {
+        background: #ccc;
+    }
+    .badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 3px;
+        font-size: 12px;
+        background: var(--info-soft);
+        color: var(--info);
+    }
+    .loading {
+        text-align: center;
+        padding: 40px;
+        color: var(--ink-3);
+    }
+    .error {
+        background: var(--stop-soft);
+        color: var(--stop);
+        padding: 15px;
+        border-radius: 4px;
+        border-left: 4px solid var(--stop);
+        margin-bottom: 20px;
+    }
+    .success {
+        background: var(--ok-soft);
+        color: var(--ok);
+        padding: 15px;
+        border-radius: 4px;
+        border-left: 4px solid var(--ok);
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="toolbar">
+    <span class="search-wrap"><svg class="ic"><use href="#i-search"></use></svg><input type="text" id="search" placeholder="Поиск по наименованию" style="flex: 1; min-width: 200px;"></span>
+    <select id="categoryFilter">
+        <option value="">Все категории</option>
+        <option value="textile">Ткани</option>
+        <option value="leather">Кожа</option>
+        <option value="polymer">Полимеры</option>
+        <option value="fittings">Фурнитура</option>
+    </select>
+    <button class="btn btn-primary" onclick="openAddModal()">+ Добавить материал</button>
+</div>
+
+<div id="loading" class="loading">Загрузка материалов...</div>
+
+<div id="content" style="display: none;">
+    <table>
+        <thead>
+            <tr>
+                <th>Наименование</th>
+                <th>Артикул</th>
+                <th>Цвет</th>
+                <th>Категория</th>
+                <th>Ед. изм.</th>
+                <th>На складе</th>
+                <th>Минимум</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody id="materialsBody">
+        </tbody>
+    </table>
+</div>
+
+<!-- Модальное окно -->
+<div class="modal" id="materialModal">
+    <div class="modal-content">
+        <h2 id="modalTitle">Добавить материал</h2>
+        <form id="materialForm">
+            <div class="form-group">
+                <label>Наименование *</label>
+                <input type="text" id="name" required>
+            </div>
+            <div class="form-group">
+                <label>Артикул</label>
+                <input type="text" id="article_number">
+            </div>
+            <div class="form-group">
+                <label>Цвет</label>
+                <input type="text" id="color">
+            </div>
+            <div class="form-group">
+                <label>Описание</label>
+                <textarea id="description"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Единица измерения *</label>
+                <select id="unit" required>
+                    <option value="">Выберите</option>
+                    <option value="pc">шт.</option>
+                    <option value="kg">кг</option>
+                    <option value="m">м</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Категория *</label>
+                <select id="category" required>
+                    <option value="">Выберите</option>
+                    <option value="textile">Ткани</option>
+                    <option value="leather">Кожа</option>
+                    <option value="polymer">Полимеры</option>
+                    <option value="fittings">Фурнитура</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Минимальный остаток *</label>
+                <input type="number" id="reorder_point" step="0.01" required>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="closeModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const categoryNames = {'textile': 'Ткани', 'leather': 'Кожа', 'polymer': 'Полимеры', 'fittings': 'Фурнитура'};
+    const unitNames = {'pc': 'шт.', 'kg': 'кг', 'm': 'м', 'm2': 'кв. м', 'l': 'л'};
+    let allMaterials = [];
+    let stockByMaterial = {};
+    let currentEditId = null;
+
+    async function loadMaterials() {
+        try {
+            const [matData, stockData] = await Promise.all([
+                apiCallAll('/materials/'),
+                apiCallAll('/stock/')
+            ]);
+            allMaterials = matData;
+
+            // Суммируем остатки по каждому материалу (по всем складам)
+            stockByMaterial = {};
+            stockData.forEach(s => {
+                if (s.material) {
+                    stockByMaterial[s.material] = (stockByMaterial[s.material] || 0) + parseFloat(s.quantity);
+                }
+            });
+
+            renderTable();
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+        } catch (error) {
+            showMessage('Ошибка загрузки: ' + error.message, 'error');
+        }
+    }
+
+    function renderTable() {
+        const search = document.getElementById('search').value.toLowerCase();
+        const category = document.getElementById('categoryFilter').value;
+        const filtered = allMaterials.filter(m =>
+            (search === '' || m.name.toLowerCase().includes(search)) &&
+            (category === '' || m.category === category)
+        );
+        
+        document.getElementById('materialsBody').innerHTML = filtered.map(m => {
+            const stock = stockByMaterial[m.id] || 0;
+            const low = stock < parseFloat(m.reorder_point);
+            return `
+            <tr>
+                <td><strong>${esc(m.name)}</strong><br><small style="color: var(--ink-3);">${esc(m.description || '—')}</small></td>
+                <td>${esc(m.article_number || '—')}</td>
+                <td>${esc(m.color || '—')}</td>
+                <td><span class="badge">${categoryNames[m.category]}</span></td>
+                <td>${unitNames[m.unit]}</td>
+                <td><strong style="color:${low ? 'var(--stop)' : 'var(--ok)'}">${stock}</strong>${low ? ' <svg class="ic"><use href="#i-alert"></use></svg>' : ''}</td>
+                <td>${m.reorder_point}</td>
+                <td><div class="row-actions">
+                    <button class="act act-edit" title="Редактировать" onclick="editMaterial(${m.id})"><svg class="ic"><use href="#i-edit"></use></svg></button>
+                    <button class="act act-del" title="Удалить" onclick="deleteMaterial(${m.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>
+                </div></td>
+            </tr>
+        `;}).join('');
+    }
+
+    function openAddModal() {
+        currentEditId = null;
+        document.getElementById('modalTitle').textContent = 'Добавить материал';
+        document.getElementById('materialForm').reset();
+        document.getElementById('materialModal').classList.add('active');
+    }
+
+    function editMaterial(id) {
+        const m = allMaterials.find(x => x.id === id);
+        if (!m) return;
+        currentEditId = id;
+        document.getElementById('modalTitle').textContent = 'Редактировать материал';
+        document.getElementById('name').value = m.name;
+        document.getElementById('article_number').value = m.article_number || '';
+        document.getElementById('color').value = m.color || '';
+        document.getElementById('description').value = m.description;
+        document.getElementById('unit').value = m.unit;
+        document.getElementById('category').value = m.category;
+        document.getElementById('reorder_point').value = m.reorder_point;
+        document.getElementById('materialModal').classList.add('active');
+    }
+
+    function closeModal() {
+        document.getElementById('materialModal').classList.remove('active');
+    }
+
+    async function saveMaterial(e) {
+        e.preventDefault();
+        const data = {
+            name: document.getElementById('name').value,
+            article_number: document.getElementById('article_number').value,
+            color: document.getElementById('color').value,
+            description: document.getElementById('description').value,
+            unit: document.getElementById('unit').value,
+            category: document.getElementById('category').value,
+            reorder_point: parseFloat(document.getElementById('reorder_point').value)
+        };
+        try {
+            if (currentEditId) {
+                await apiCall(`/materials/${currentEditId}/`, 'PUT', data);
+                showMessage('Материал обновлён', 'success');
+            } else {
+                await apiCall('/materials/', 'POST', data);
+                showMessage('Материал добавлен', 'success');
+            }
+            closeModal();
+            loadMaterials();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    async function deleteMaterial(id) {
+        if (!confirm('Удалить материал?')) return;
+        try {
+            await apiCall(`/materials/${id}/`, 'DELETE');
+            showMessage('Материал удалён', 'success');
+            loadMaterials();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    function showMessage(text, type) {
+        const msg = document.getElementById('message');
+        msg.innerHTML = `<div class="${type}">${text}</div>`;
+        setTimeout(() => { msg.innerHTML = ''; }, 4000);
+    }
+
+    document.getElementById('search').addEventListener('input', renderTable);
+    document.getElementById('categoryFilter').addEventListener('change', renderTable);
+    document.getElementById('materialForm').addEventListener('submit', saveMaterial);
+
+    loadMaterials();
+</script>
+{% endblock %}

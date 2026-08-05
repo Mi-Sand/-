@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% block title %}Чат | Складской учёт{% endblock %}
+{% block page_title %}💬 Чат сотрудников{% endblock %}
+
+{% block extra_css %}
+<style>
+    .chat-layout { display: flex; gap: 20px; height: calc(100vh - 200px); min-height: 400px; }
+    .chat-sidebar { width: 260px; background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow-y: auto; flex-shrink: 0; }
+    .chat-contact { padding: 14px 16px; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background .15s; }
+    .chat-contact:hover { background: #f5f7fa; }
+    .chat-contact.active { background: #e3f2fd; border-left: 3px solid #1e3a5f; }
+    .chat-contact .name { font-weight: 600; color: #2a3b50; }
+    .chat-contact .role { font-size: 12px; color: #8895a5; }
+    .chat-main { flex: 1; background: #fff; border: 1px solid #ddd; border-radius: 8px; display: flex; flex-direction: column; }
+    .chat-header { padding: 16px 20px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 17px; color: #1e3a5f; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+    .msg { max-width: 70%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
+    .msg .msg-sender { font-size: 12px; font-weight: 600; margin-bottom: 3px; opacity: .8; }
+    .msg .msg-time { font-size: 11px; opacity: .6; margin-top: 3px; }
+    .msg.mine { align-self: flex-end; background: #1e3a5f; color: #fff; }
+    .msg.theirs { align-self: flex-start; background: #f0f2f5; color: #2a3b50; }
+    .chat-input { display: flex; gap: 10px; padding: 16px 20px; border-top: 1px solid #eee; }
+    .chat-input input { flex: 1; padding: 12px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+    .chat-input button { padding: 12px 24px; background: #1e3a5f; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .chat-input button:hover { background: #152a47; }
+    .chat-empty { text-align: center; color: #99a; padding: 40px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+    <div class="chat-sidebar">
+        <div class="chat-contact active" data-id="" onclick="selectChat('', 'Общий чат', this)">
+            <div class="name">📢 Общий чат</div>
+            <div class="role">Виден всем сотрудникам</div>
+        </div>
+        <div id="contactsList"></div>
+    </div>
+    <div class="chat-main">
+        <div class="chat-header" id="chatHeader">Общий чат</div>
+        <div class="chat-messages" id="messages">
+            <div class="chat-empty">Загрузка сообщений...</div>
+        </div>
+        <div class="chat-input">
+            <input type="text" id="msgInput" placeholder="Написать сообщение..." onkeydown="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()">Отправить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const myId = {{ user.id }};
+    let activeChat = '';       // '' = общий, иначе id собеседника
+    let lastMsgId = 0;
+    let pollTimer = null;
+
+    async function loadContacts() {
+        try {
+            const contacts = await apiCall('/chat/contacts/');
+            document.getElementById('contactsList').innerHTML = contacts.map(c => `
+                <div class="chat-contact" data-id="${c.id}" onclick="selectChat('${c.id}', '${c.name.replace(/'/g, "")}', this)">
+                    <div class="name">${c.name}</div>
+                    <div class="role">${c.role}</div>
+                </div>
+            `).join('');
+        } catch (e) { /* нет доступа/ошибка — оставим только общий */ }
+    }
+
+    function selectChat(id, title, el) {
+        activeChat = id;
+        lastMsgId = 0;
+        document.querySelectorAll('.chat-contact').forEach(c => c.classList.remove('active'));
+        el.classList.add('active');
+        document.getElementById('chatHeader').textContent =
+            id ? '💬 ' + title : '📢 Общий чат';
+        document.getElementById('messages').innerHTML = '<div class="chat-empty">Загрузка...</div>';
+        loadMessages(true);
+    }
+
+    async function loadMessages(reset) {
+        try {
+            let url = '/chat/messages/';
+            const params = [];
+            if (activeChat) params.push('with=' + activeChat);
+            if (!reset && lastMsgId) params.push('after=' + lastMsgId);
+            if (params.length) url += '?' + params.join('&');
+
+            const msgs = await apiCall(url);
+            const box = document.getElementById('messages');
+            if (reset) box.innerHTML = '';
+            if (reset && msgs.length === 0) {
+                box.innerHTML = '<div class="chat-empty">Пока нет сообщений. Начните переписку!</div>';
+                return;
+            }
+            // Удаляем плейсхолдер, если был
+            const empty = box.querySelector('.chat-empty');
+            if (empty && msgs.length) empty.remove();
+
+            const wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 50;
+            msgs.forEach(m => {
+                lastMsgId = Math.max(lastMsgId, m.id);
+                const mine = m.sender_id === myId;
+                const time = new Date(m.created_at).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+                const div = document.createElement('div');
+                div.className = 'msg ' + (mine ? 'mine' : 'theirs');
+                div.innerHTML =
+                    (!mine && !activeChat ? `<div class="msg-sender">${m.sender_name}</div>` : '') +
+                    `<div>${escapeHtml(m.text)}</div><div class="msg-time">${time}</div>`;
+                box.appendChild(div);
+            });
+            if (reset || wasAtBottom) box.scrollTop = box.scrollHeight;
+        } catch (e) { /* игнорируем сбои опроса */ }
+    }
+
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('msgInput');
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        try {
+            const data = { text: text };
+            if (activeChat) data.recipient = parseInt(activeChat);
+            await apiCall('/chat/messages/', 'POST', data);
+            loadMessages(false);  // сразу подтянуть новое
+        } catch (e) {
+            input.value = text;  // вернуть текст при ошибке
+        }
+    }
+
+    // Автообновление: опрашиваем новые сообщения каждые 3 секунды
+    function startPolling() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(() => loadMessages(false), 3000);
+    }
+
+    loadContacts();
+    loadMessages(true);
+    startPolling();
+</script>
+{% endblock %}

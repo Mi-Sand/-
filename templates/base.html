@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Складской учёт ООО «ЛЕКО»{% endblock %}</title>
+    <script>
+        // Получить CSRF токен из cookies
+        function getCookie(name) {
+            const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
+            return match ? decodeURIComponent(match[3]) : '';
+        }
+
+        // Базовая функция для API запросов.
+        // Определена в <head>, чтобы быть доступной любому скрипту страницы.
+        async function apiCall(endpoint, method = 'GET', data = null) {
+            const options = {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken'),
+                }
+            };
+            if (data && method !== 'GET') {
+                options.body = JSON.stringify(data);
+            }
+            const response = await fetch(`/api${endpoint}`, options);
+            if (!response.ok) {
+                let message = 'Ошибка запроса';
+                try {
+                    const error = await response.json();
+                    message = error.detail || error.error || JSON.stringify(error);
+                } catch (e) {
+                    message = `${response.status} ${response.statusText}`;
+                }
+                throw new Error(message);
+            }
+            if (response.status === 204) return null;
+            return response.json();
+        }
+
+        // Загрузить ВСЕ записи списка, а не только первую страницу.
+        //
+        // Зачем: API отдаёт данные постранично. Если запросить с жёстким
+        // лимитом (?limit=100), то при 101-й записи часть данных просто
+        // не придёт — молча, без ошибки. Особенно опасно там, где значения
+        // суммируются (например, остатки по складам): итог окажется неверным.
+        //
+        // Эта функция идёт по страницам (по ссылке `next`), пока не заберёт
+        // всё, и возвращает единый массив результатов.
+        async function apiCallAll(endpoint) {
+            const sep = endpoint.includes('?') ? '&' : '?';
+            let url = `${endpoint}${sep}limit=200`;
+            const all = [];
+            let guard = 0;  // страховка от бесконечного цикла
+
+            while (url && guard < 100) {
+                const data = await apiCall(url);
+                if (!data) break;
+                if (Array.isArray(data)) {          // ответ без пагинации
+                    return data;
+                }
+                all.push(...(data.results || []));
+                if (!data.next) break;
+                // API отдаёт абсолютный URL — берём часть после /api
+                const idx = data.next.indexOf('/api');
+                url = idx >= 0 ? data.next.slice(idx + 4) : null;
+                guard++;
+            }
+            // Массив с полем results, указывающим на себя же.
+            //
+            // Функция возвращает готовый список, но в старом коде мог
+            // остаться вызов вида `data.results.map(...)` — раньше API
+            // отдавал данные в таком виде. Без этой страховки такой вызов
+            // падал бы с невнятной ошибкой «cannot read properties of
+            // undefined», как это уже случалось на странице прихода.
+            Object.defineProperty(all, 'results', {
+                value: all, enumerable: false, configurable: true,
+            });
+            return all;
+        }
+
+        // Иконка: короткая запись вместо длинного тега svg/use
+        function icon(name, cls) {
+            return `<svg class="ic ${cls || ''}"><use href="#i-${name}"></use></svg>`;
+        }
+
+        // Экранирование текста перед вставкой в разметку.
+        //
+        // Названия материалов, поставщиков и прочие данные вводят люди.
+        // Если подставить их в innerHTML как есть, символы вроде < и >
+        // будут разобраны как теги: страница сломается, а при недобром
+        // вводе — выполнится посторонний скрипт. Эта функция превращает
+        // такие символы в безопасные последовательности.
+        function esc(value) {
+            const box = document.createElement('div');
+            box.textContent = value ?? '';
+            return box.innerHTML;
+        }
+    </script>
+    <style>
+        /* ============================================================
+           Оформление системы складского учёта ООО «ЛЕКО».
+
+           Направление: производственный инструмент, а не витрина. Основа —
+           графитовый сланец корпуса станка и охра складской разметки:
+           тем же цветом на складах размечают проезды и границы зон, им же
+           здесь отмечено всё, что требует действия.
+
+           Числа, артикулы и номера документов набраны моноширинным шрифтом
+           с табличными цифрами — в столбцах они выравниваются разряд к
+           разряду, и расхождение в остатках видно сразу, без вычитания
+           в уме. Это главный приём оформления: точность вместо украшений.
+           ============================================================ */
+
+        :root {
+            /* Основа */
+            --canvas:      #EEF1F4;   /* фон рабочей области */
+            --surface:     #FFFFFF;   /* карточки и таблицы */
+            --surface-alt: #F7F9FA;   /* вложенные блоки */
+
+            /* Сланец — корпус, навигация, текст */
+            --slate-900:   #12202B;
+            --slate-800:   #1B2E3D;
+            --slate-700:   #26404F;
+            --slate-600:   #37566A;
+            --ink:         #16232D;   /* основной текст */
+            --ink-2:       #55697A;   /* второстепенный текст */
+            --ink-3:       #8496A5;   /* подписи, плейсхолдеры */
+            --line:        #DCE3E8;   /* линейки */
+            --line-strong: #C3CED6;
+
+            /* Охра складской разметки — единственный акцент */
+            --mark:        #D98A1F;
+            --mark-dark:   #B4700F;
+            --mark-soft:   #FDF4E4;
+
+            /* Состояния */
+            --ok:          #1F7A4C;
+            --ok-soft:     #E7F4ED;
+            --warn:        #9A6B08;
+            --warn-soft:   #FCF3DC;
+            --stop:        #B23A32;
+            --stop-soft:   #FBEBEA;
+            --info:        #1D5B94;
+            --info-soft:   #E8F1F9;
+
+            /* Размеры */
+            --rail: 244px;
+            --r-sm: 4px;
+            --r:    6px;
+            --r-lg: 10px;
+
+            --shadow-sm: 0 1px 2px rgba(18, 32, 43, .06);
+            --shadow:    0 2px 8px rgba(18, 32, 43, .08);
+            --shadow-lg: 0 12px 32px rgba(18, 32, 43, .16);
+
+            --sans: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+            --mono: "JetBrains Mono", "SF Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html { -webkit-text-size-adjust: 100%; }
+
+        body {
+            font-family: var(--sans);
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--ink);
+            background: var(--canvas);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Табличные цифры везде, где есть числа */
+        table, input[type="number"], .num, .mono {
+            font-variant-numeric: tabular-nums;
+        }
+        .mono { font-family: var(--mono); letter-spacing: -.01em; }
+
+        a { color: inherit; }
+
+        /* ---------- Каркас ---------- */
+        .layout { display: flex; min-height: 100vh; }
+
+        .rail {
+            width: var(--rail);
+            flex-shrink: 0;
+            background: var(--slate-900);
+            color: #C6D3DC;
+            display: flex;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+
+        .rail-brand {
+            padding: 20px 18px 16px;
+            border-bottom: 1px solid rgba(255,255,255,.08);
+        }
+        .rail-brand .mark {
+            font-family: var(--mono);
+            font-size: 11px;
+            letter-spacing: .16em;
+            text-transform: uppercase;
+            color: var(--mark);
+            display: block;
+            margin-bottom: 3px;
+        }
+        .rail-brand .name {
+            font-size: 16px;
+            font-weight: 650;
+            color: #fff;
+            letter-spacing: -.01em;
+        }
+
+        .rail-nav { padding: 10px 10px 20px; overflow-y: auto; flex: 1; }
+        .rail-nav .group {
+            font-family: var(--mono);
+            font-size: 10px;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+            color: #5F7889;
+            padding: 14px 10px 6px;
+        }
+        .rail-nav a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: var(--r);
+            color: #B7C7D2;
+            text-decoration: none;
+            font-size: 13.5px;
+            position: relative;
+            transition: background .12s, color .12s;
+        }
+        .rail-nav a:hover { background: rgba(255,255,255,.06); color: #fff; }
+        .rail-nav a.active { background: var(--slate-700); color: #fff; font-weight: 550; }
+        /* Метка активного раздела — та же охра, что и на складской разметке */
+        .rail-nav a.active::before {
+            content: "";
+            position: absolute;
+            left: -10px; top: 50%;
+            transform: translateY(-50%);
+            width: 3px; height: 18px;
+            background: var(--mark);
+            border-radius: 0 2px 2px 0;
+        }
+        .rail-nav a .ic { color: #7E97A7; flex-shrink: 0; }
+        .rail-nav a:hover .ic, .rail-nav a.active .ic { color: var(--mark); }
+        .rail-nav .ext { margin-left: auto; opacity: .5; }
+
+        .work { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+        .topbar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--line);
+            padding: 0 26px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky; top: 0; z-index: 40;
+        }
+        .topbar h1 {
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -.015em;
+            display: flex; align-items: center; gap: 9px;
+        }
+        .topbar h1 .ic { color: var(--ink-3); }
+        .whoami { display: flex; align-items: center; gap: 14px; font-size: 13px; }
+        .whoami .who { color: var(--ink-2); }
+        .whoami .out {
+            display: inline-flex; align-items: center; gap: 6px;
+            color: var(--ink-2); text-decoration: none;
+            padding: 6px 10px; border-radius: var(--r);
+            border: 1px solid var(--line);
+        }
+        .whoami .out:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface-alt); }
+
+        .sheet { padding: 22px 26px 40px; flex: 1; }
+
+        /* ---------- Иконки ---------- */
+        .ic    { width: 18px; height: 18px; display: inline-block; vertical-align: -3.5px; }
+        .ic-sm { width: 14px; height: 14px; vertical-align: -2.5px; }
+        .ic-lg { width: 22px; height: 22px; vertical-align: -5px; }
+
+        /* ---------- Панель ---------- */
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: var(--r-lg);
+            box-shadow: var(--shadow-sm);
+        }
+        .panel + .panel { margin-top: 18px; }
+        .panel-head {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--line);
+            display: flex; align-items: center; justify-content: space-between; gap: 14px;
+        }
+        .panel-head h2 { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+        .panel-body { padding: 18px; }
+
+        /* ---------- Кнопки ---------- */
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+            padding: 8px 14px;
+            font: inherit; font-size: 13.5px; font-weight: 550;
+            border: 1px solid transparent;
+            border-radius: var(--r);
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background .12s, border-color .12s, color .12s;
+        }
+        .btn:disabled { opacity: .45; cursor: not-allowed; }
+        .btn-primary { background: var(--slate-800); color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: var(--slate-700); }
+        /* Охра — только там, где система ждёт действия */
+        .btn-mark { background: var(--mark); color: #fff; }
+        .btn-mark:hover:not(:disabled) { background: var(--mark-dark); }
+        .btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
+        .btn-ghost:hover:not(:disabled) { background: var(--surface-alt); }
+        .btn-ok   { background: var(--ok); color: #fff; }
+        .btn-ok:hover:not(:disabled) { filter: brightness(.92); }
+        .btn-stop { background: var(--surface); color: var(--stop); border-color: #E8C4C1; }
+        .btn-stop:hover:not(:disabled) { background: var(--stop-soft); }
+        .btn-sm { padding: 6px 10px; font-size: 12.5px; }
+        .btn-icon { padding: 6px 8px; }
+
+        /* ---------- Поля ---------- */
+        .field { margin-bottom: 14px; }
+        .field label {
+            display: block;
+            font-size: 12px; font-weight: 550;
+            color: var(--ink-2);
+            margin-bottom: 5px;
+        }
+        .field .hint { font-size: 12px; color: var(--ink-3); margin-top: 5px; }
+        input[type=text], input[type=number], input[type=date], input[type=email],
+        input[type=password], input[type=tel], input[type=file], select, textarea {
+            width: 100%;
+            padding: 8px 11px;
+            font: inherit; font-size: 13.5px;
+            color: var(--ink);
+            background: var(--surface);
+            border: 1px solid var(--line-strong);
+            border-radius: var(--r);
+            transition: border-color .12s, box-shadow .12s;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--slate-600);
+            box-shadow: 0 0 0 3px rgba(55, 86, 106, .12);
+        }
+        input::placeholder, textarea::placeholder { color: var(--ink-3); }
+        textarea { resize: vertical; min-height: 66px; }
+
+        .toolbar { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+        .toolbar .grow { flex: 1; min-width: 190px; }
+
+        /* Поля по умолчанию занимают всю ширину — это верно для форм, но
+           в панели инструментов они должны стоять в строку. Здесь ширину
+           определяет флекс, а не сам элемент. */
+        .toolbar input, .toolbar select, .toolbar textarea { width: auto; }
+        .toolbar select { min-width: 150px; }
+        .toolbar .search-wrap { flex: 1; min-width: 200px; }
+        .toolbar .search-wrap input { width: 100%; }
+
+        .search-wrap { position: relative; display: block; }
+        .search-wrap .ic {
+            position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+            color: var(--ink-3); pointer-events: none; z-index: 1;
+        }
+        /* Отступ слева освобождает место под лупу. Важнее правил страницы,
+           поэтому задан с запасом по весу селектора. */
+        .search-wrap input[type="text"],
+        .search-wrap input:not([type]) { padding-left: 34px !important; }
+
+        /* ---------- Таблица ---------- */
+        .grid { width: 100%; border-collapse: collapse; }
+        .grid th {
+            font-family: var(--mono);
+            font-size: 10.5px;
+            font-weight: 500;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+            text-align: left;
+            padding: 0 14px 9px;
+            border-bottom: 1px solid var(--line-strong);
+            white-space: nowrap;
+        }
+        .grid td {
+            padding: 11px 14px;
+            border-bottom: 1px solid var(--line);
+            vertical-align: middle;
+        }
+        .grid tbody tr:last-child td { border-bottom: none; }
+        .grid tbody tr:hover { background: var(--surface-alt); }
+        .grid .code { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
+        .grid .qty  { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+        .grid .name { font-weight: 550; }
+        .grid .sub  { font-size: 12px; color: var(--ink-3); }
+        .row-actions { display: flex; gap: 5px; justify-content: flex-end; }
+
+        /* Кнопки действий в строках таблицы.
+           В спокойном состоянии — только контур: десяток залитых цветом
+           квадратиков в столбце превращает таблицу в пестроту и мешает
+           читать данные. Цвет появляется при наведении, когда действие
+           действительно рассматривают. */
+        .act {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 30px; height: 28px; padding: 0;
+            border: 1px solid var(--line-strong);
+            background: var(--surface);
+            border-radius: var(--r-sm);
+            color: var(--ink-2);
+            cursor: pointer;
+            transition: background .12s, border-color .12s, color .12s;
+        }
+        .act:hover { background: var(--surface-alt); color: var(--ink); }
+        .act-edit:hover { border-color: #A8C8E4; background: var(--info-soft); color: var(--info); }
+        .act-copy:hover { border-color: #A9D3BE; background: var(--ok-soft);   color: var(--ok); }
+        .act-del:hover  { border-color: #E4B8B4; background: var(--stop-soft); color: var(--stop); }
+        .act .ic { width: 15px; height: 15px; vertical-align: 0; }
+
+        /* ---------- Метки состояния ---------- */
+        .tag {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 8px;
+            font-size: 11.5px; font-weight: 550;
+            border-radius: var(--r-sm);
+            white-space: nowrap;
+        }
+        .tag-neutral { background: #EDF1F4; color: var(--ink-2); }
+        .tag-ok   { background: var(--ok-soft);   color: var(--ok); }
+        .tag-warn { background: var(--warn-soft); color: var(--warn); }
+        .tag-stop { background: var(--stop-soft); color: var(--stop); }
+        .tag-info { background: var(--info-soft); color: var(--info); }
+        .tag-mark { background: var(--mark-soft); color: var(--mark-dark); }
+
+        /* ---------- Показатели ---------- */
+        .metrics { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+        .metric {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-left: 3px solid var(--slate-600);
+            border-radius: var(--r);
+            padding: 12px 18px;
+            min-width: 132px;
+        }
+        .metric.is-mark { border-left-color: var(--mark); }
+        .metric.is-stop { border-left-color: var(--stop); }
+        .metric.is-ok   { border-left-color: var(--ok); }
+        .metric .label {
+            font-family: var(--mono);
+            font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+            color: var(--ink-3);
+            margin-bottom: 4px;
+        }
+        .metric .value {
+            font-family: var(--mono);
+            font-size: 24px; font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -.02em;
+        }
+
+        /* ---------- Сообщения ---------- */
+        .note {
+            display: flex; align-items: flex-start; gap: 9px;
+            padding: 11px 14px;
+            border-radius: var(--r);
+            border: 1px solid;
+            margin-bottom: 16px;
+            font-size: 13.5px;
+        }
+        .note .ic { flex-shrink: 0; margin-top: 1px; }
+        .note-ok   { background: var(--ok-soft);   border-color: #BFE0CE; color: var(--ok); }
+        .note-stop { background: var(--stop-soft); border-color: #EDC9C6; color: var(--stop); }
+        .note-warn { background: var(--warn-soft); border-color: #E8D5A6; color: var(--warn); }
+        .note-info { background: var(--info-soft); border-color: #C3DAEC; color: var(--info); }
+
+        /* ---------- Пустое состояние и загрузка ---------- */
+        .empty, .loading {
+            padding: 44px 20px;
+            text-align: center;
+            color: var(--ink-3);
+            font-size: 13.5px;
+        }
+        .empty .ic-lg { color: var(--line-strong); display: block; margin: 0 auto 10px; }
+
+        /* ---------- Модальные окна ---------- */
+        .modal {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(18, 32, 43, .5);
+            z-index: 1000;
+            align-items: center; justify-content: center;
+            padding: 20px;
+        }
+        .modal.active { display: flex; }
+        .modal-content, .modal-box {
+            background: var(--surface);
+            border-radius: var(--r-lg);
+            box-shadow: var(--shadow-lg);
+            width: 100%;
+            max-width: 520px;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .modal-content h2, .modal-box h2 {
+            font-size: 17px; font-weight: 600;
+            letter-spacing: -.015em;
+            margin-bottom: 18px;
+        }
+        .form-group { margin-bottom: 14px; }
+        .form-group label {
+            display: block; font-size: 12px; font-weight: 550;
+            color: var(--ink-2); margin-bottom: 5px;
+        }
+        .form-actions { display: flex; gap: 9px; margin-top: 20px; }
+        .form-actions .btn { flex: 1; }
+
+        /* Совместимость со старой разметкой страниц */
+        .btn-secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); }
+        .btn-secondary:hover { background: var(--surface-alt); }
+        .badge { display: inline-flex; align-items: center; padding: 3px 8px; font-size: 11.5px;
+                 font-weight: 550; border-radius: var(--r-sm); background: #EDF1F4; color: var(--ink-2); }
+        .alert { display: flex; gap: 9px; padding: 11px 14px; border-radius: var(--r);
+                 border: 1px solid; margin-bottom: 16px; font-size: 13.5px; }
+        .alert-success { background: var(--ok-soft); border-color: #BFE0CE; color: var(--ok); }
+        .alert-error   { background: var(--stop-soft); border-color: #EDC9C6; color: var(--stop); }
+        .success { background: var(--ok-soft); border: 1px solid #BFE0CE; color: var(--ok);
+                   padding: 11px 14px; border-radius: var(--r); margin-bottom: 16px; }
+        .error   { background: var(--stop-soft); border: 1px solid #EDC9C6; color: var(--stop);
+                   padding: 11px 14px; border-radius: var(--r); margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; }
+        table th {
+            font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+            letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
+            text-align: left; padding: 0 14px 9px;
+            border-bottom: 1px solid var(--line-strong); background: none; white-space: nowrap;
+        }
+        table td { padding: 11px 14px; border-bottom: 1px solid var(--line); }
+        table tbody tr:hover { background: var(--surface-alt); }
+
+        /* ---------- Адаптация ---------- */
+        @media (max-width: 900px) {
+            .layout { flex-direction: column; }
+            .rail { width: 100%; height: auto; position: static; }
+            .rail-nav { display: flex; overflow-x: auto; padding: 8px; gap: 4px; }
+            .rail-nav .group { display: none; }
+            .rail-nav a { white-space: nowrap; }
+            .rail-nav a.active::before { display: none; }
+            .sheet { padding: 16px 14px 32px; }
+            .topbar { padding: 0 14px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * { transition: none !important; animation: none !important; }
+        }
+
+        :focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+
+        {% block extra_css %}{% endblock %}
+    </style>
+</head>
+<body>
+    {% include '_icons.html' %}
+
+    <div class="layout">
+        <aside class="rail">
+            <div class="rail-brand">
+                <span class="mark">ООО «ЛЕКО»</span>
+                <span class="name">Складской учёт</span>
+            </div>
+            <nav class="rail-nav">
+                <div class="group">Обзор</div>
+                <a href="/" class="{% if active == 'dashboard' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-grid"></use></svg>Сводка</a>
+
+                <div class="group">Номенклатура</div>
+                <a href="/materials/" class="{% if active == 'materials' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-box"></use></svg>Материалы</a>
+                <a href="/products/" class="{% if active == 'products' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-package"></use></svg>Продукция</a>
+                <a href="/catalog/" class="{% if active == 'catalog' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-book"></use></svg>Справочники</a>
+
+                <div class="group">Движение</div>
+                <a href="/inbound/" class="{% if active == 'inbound' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-inbound"></use></svg>Приход</a>
+                <a href="/outbound/" class="{% if active == 'outbound' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-outbound"></use></svg>Расход</a>
+                <a href="/production/" class="{% if active == 'production' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-factory"></use></svg>Производство</a>
+                <a href="/orders/" class="{% if active == 'orders' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-bag"></use></svg>Заказы</a>
+
+                <div class="group">Контроль</div>
+                <a href="/inventory/" class="{% if active == 'inventory' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-clipboard"></use></svg>Инвентаризация</a>
+                <a href="/reports/" class="{% if active == 'reports' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-chart"></use></svg>Отчёты</a>
+                {% if user.is_superuser or user.role == 'admin' %}
+                <a href="/employees/" class="{% if active == 'employees' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-users"></use></svg>Сотрудники</a>
+                {% endif %}
+                <a href="/shop/" target="_blank">
+                    <svg class="ic"><use href="#i-store"></use></svg>Витрина
+                    <svg class="ic-sm ext"><use href="#i-external"></use></svg></a>
+            </nav>
+        </aside>
+
+        <div class="work">
+            <header class="topbar">
+                <h1>{% block page_title %}Сводка{% endblock %}</h1>
+                <div class="whoami">
+                    <span class="who">{{ user.get_full_name|default:user.username }}</span>
+                    <a href="/logout/" class="out">
+                        <svg class="ic-sm"><use href="#i-logout"></use></svg>Выход</a>
+                </div>
+            </header>
+
+            <main class="sheet">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    {% if user.is_authenticated %}
+    <!-- Чат сотрудников — доступен на всех страницах -->
+    <style>
+        #chatFab {
+            position: fixed; bottom: 22px; right: 22px;
+            width: 50px; height: 50px; border-radius: 50%;
+            background: var(--slate-800); color: #fff;
+            border: none; cursor: pointer; z-index: 1500;
+            box-shadow: var(--shadow-lg);
+            display: flex; align-items: center; justify-content: center;
+            transition: background .15s;
+        }
+        #chatFab:hover { background: var(--slate-700); }
+        #chatWidget {
+            position: fixed; bottom: 22px; right: 22px;
+            width: 372px; max-width: calc(100vw - 32px);
+            height: 508px; max-height: calc(100vh - 44px);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: var(--r-lg);
+            box-shadow: var(--shadow-lg);
+            z-index: 1600; display: none; flex-direction: column; overflow: hidden;
+        }
+        #chatWidget.open { display: flex; }
+        .cw-header {
+            background: var(--slate-900); color: #fff;
+            padding: 12px 14px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .cw-header .cw-title { font-weight: 600; font-size: 13.5px; }
+        .cw-header button {
+            background: none; border: none; color: #9FB3C0; cursor: pointer;
+            padding: 2px; display: flex;
+        }
+        .cw-header button:hover { color: #fff; }
+        .cw-tabs { display: flex; border-bottom: 1px solid var(--line); }
+        .cw-tab {
+            flex: 1; padding: 10px; text-align: center; cursor: pointer;
+            font-size: 12.5px; color: var(--ink-2);
+            border-bottom: 2px solid transparent;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+        }
+        .cw-tab:hover { background: var(--surface-alt); }
+        .cw-tab.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--mark); }
+        .cw-contacts { display: none; flex-direction: column; overflow-y: auto; flex: 1; }
+        .cw-contacts.show { display: flex; }
+        .cw-contact { padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--line); }
+        .cw-contact:hover { background: var(--surface-alt); }
+        .cw-contact .nm { font-weight: 550; font-size: 13.5px; }
+        .cw-contact .rl { font-size: 12px; color: var(--ink-3); }
+        .cw-chat { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+        .cw-chat.show { display: flex; }
+        .cw-back {
+            padding: 8px 14px; background: var(--surface-alt);
+            border-bottom: 1px solid var(--line); cursor: pointer;
+            font-size: 12.5px; color: var(--ink-2);
+            display: flex; align-items: center; gap: 6px;
+        }
+        .cw-back:hover { color: var(--ink); }
+        .cw-messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 7px; }
+        .cw-msg { max-width: 78%; padding: 8px 11px; border-radius: 10px; font-size: 13px; line-height: 1.45; word-wrap: break-word; }
+        .cw-msg .snd { font-size: 11px; font-weight: 600; opacity: .75; margin-bottom: 2px; }
+        .cw-msg .tm  { font-size: 10px; opacity: .55; margin-top: 3px; font-family: var(--mono); }
+        .cw-msg.mine   { align-self: flex-end; background: var(--slate-800); color: #fff; }
+        .cw-msg.theirs { align-self: flex-start; background: var(--surface-alt); border: 1px solid var(--line); }
+        .cw-input { display: flex; gap: 8px; padding: 11px; border-top: 1px solid var(--line); }
+        .cw-input input { flex: 1; }
+        .cw-input button {
+            padding: 8px 12px; background: var(--slate-800); color: #fff;
+            border: none; border-radius: var(--r); cursor: pointer; display: flex; align-items: center;
+        }
+        .cw-input button:hover { background: var(--slate-700); }
+        .cw-empty { text-align: center; color: var(--ink-3); padding: 28px 16px; font-size: 13px; }
+
+        /* Счётчик непрочитанных.
+           Охра — тот же цвет, которым в системе отмечено всё, что ждёт
+           действия: непрочитанное сообщение как раз из этого разряда. */
+        .cw-badge {
+            font-family: var(--mono); font-variant-numeric: tabular-nums;
+            background: var(--mark); color: #fff;
+            min-width: 18px; height: 18px; padding: 0 5px;
+            border-radius: 9px; font-size: 11px; font-weight: 600;
+            display: inline-flex; align-items: center; justify-content: center;
+        }
+        /* Счётчик на круглой кнопке — приподнят в угол */
+        #chatFab .cw-badge {
+            position: absolute; top: -3px; right: -3px;
+            border: 2px solid var(--canvas);
+            min-width: 21px; height: 21px; border-radius: 11px;
+        }
+        #chatFab { position: fixed; }
+        .cw-tab .cw-badge { margin-left: 5px; }
+        .cw-contact { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .cw-contact.has-new .nm { font-weight: 700; }
+
+        /* Всплывающее уведомление о новом сообщении */
+        .cw-toast {
+            position: fixed; bottom: 84px; right: 22px; z-index: 1700;
+            width: 316px; max-width: calc(100vw - 32px);
+            background: var(--surface);
+            border: 1px solid var(--line-strong);
+            border-left: 3px solid var(--mark);
+            border-radius: var(--r);
+            box-shadow: var(--shadow-lg);
+            padding: 12px 14px;
+            cursor: pointer;
+            animation: cwSlide .2s ease-out;
+        }
+        .cw-toast .from {
+            font-size: 12.5px; font-weight: 650; margin-bottom: 3px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .cw-toast .from .ic-sm { color: var(--mark); }
+        .cw-toast .body {
+            font-size: 13px; color: var(--ink-2);
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        @keyframes cwSlide {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: none; }
+        }
+        @media (prefers-reduced-motion: reduce) { .cw-toast { animation: none; } }
+    </style>
+
+    <button id="chatFab" onclick="cwOpen()" aria-label="Открыть чат сотрудников">
+        <svg class="ic-lg"><use href="#i-chat"></use></svg>
+        <span class="cw-badge" id="cwFabBadge" style="display:none">0</span>
+    </button>
+
+    <div id="chatWidget">
+        <div class="cw-header">
+            <span class="cw-title">Чат сотрудников</span>
+            <button onclick="cwClose()" aria-label="Закрыть чат">
+                <svg class="ic"><use href="#i-x"></use></svg></button>
+        </div>
+        <div class="cw-tabs">
+            <div class="cw-tab active" id="cwTabGeneral" onclick="cwOpenGeneral()">
+                Общий<span class="cw-badge" id="cwGeneralBadge" style="display:none">0</span></div>
+            <div class="cw-tab" id="cwTabPrivate" onclick="cwShowContacts()">
+                Личные<span class="cw-badge" id="cwPrivateBadge" style="display:none">0</span></div>
+        </div>
+
+        <div class="cw-contacts" id="cwContacts"></div>
+
+        <div class="cw-chat" id="cwChat">
+            <div class="cw-back" id="cwBack" onclick="cwShowContacts()" style="display:none;">
+                <svg class="ic-sm"><use href="#i-arrow-left"></use></svg>К списку</div>
+            <div class="cw-messages" id="cwMessages"></div>
+            <div class="cw-input">
+                <input type="text" id="cwInput" placeholder="Сообщение…" onkeydown="if(event.key==='Enter') cwSend()">
+                <button onclick="cwSend()" aria-label="Отправить">
+                    <svg class="ic-sm"><use href="#i-send"></use></svg></button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const cwMyId = {{ user.id }};
+
+        // ===== Уведомления о новых сообщениях =====
+        //
+        // Счётчики опрашиваются раз в 10 секунд независимо от того, открыт
+        // виджет или нет: сотрудник должен видеть, что его позвали, даже
+        // когда занят накладными. Когда окно чата открыто на нужном
+        // диалоге, сообщения помечаются прочитанными автоматически.
+        let cwUnread = { total: 0, general: 0, private: {} };
+        let cwLastNotifiedId = 0;   // о каком сообщении уже уведомили
+        let cwUnreadTimer = null;
+        let cwToastTimer = null;
+        const cwBaseTitle = document.title;
+
+        async function cwRefreshUnread(announce) {
+            try {
+                const data = await apiCall('/chat/unread/');
+                cwUnread = data;
+                cwPaintBadges();
+
+                // Уведомляем только о действительно новом сообщении и
+                // только если сотрудник его сейчас не видит на экране.
+                if (announce && data.latest && data.latest.id > cwLastNotifiedId) {
+                    const seenNow = cwWidgetOpen && (
+                        (data.latest.is_private && String(cwActiveChat) === String(data.latest.sender_id)) ||
+                        (!data.latest.is_private && cwActiveChat === ''));
+                    if (!seenNow) cwAnnounce(data.latest);
+                    cwLastNotifiedId = data.latest.id;
+                }
+            } catch (e) { /* сеть моргнула — попробуем в следующий раз */ }
+        }
+
+        function cwPaintBadges() {
+            const privateTotal = Object.values(cwUnread.private || {})
+                .reduce((sum, n) => sum + n, 0);
+            cwSetBadge('cwFabBadge', cwUnread.total);
+            cwSetBadge('cwGeneralBadge', cwUnread.general);
+            cwSetBadge('cwPrivateBadge', privateTotal);
+
+            // Счётчик в заголовке вкладки браузера
+            document.title = cwUnread.total > 0
+                ? `(${cwUnread.total}) ${cwBaseTitle}` : cwBaseTitle;
+
+            // Пометки у контактов в списке
+            document.querySelectorAll('.cw-contact[data-id]').forEach(el => {
+                const n = (cwUnread.private || {})[el.dataset.id] || 0;
+                const badge = el.querySelector('.cw-badge');
+                if (badge) {
+                    badge.textContent = n > 99 ? '99+' : n;
+                    badge.style.display = n ? 'inline-flex' : 'none';
+                }
+                el.classList.toggle('has-new', n > 0);
+            });
+        }
+
+        function cwSetBadge(id, n) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = n > 99 ? '99+' : n;
+            el.style.display = n > 0 ? 'inline-flex' : 'none';
+        }
+
+        function cwAnnounce(msg) {
+            cwShowToast(msg);
+            cwBeep();
+            cwSystemNotify(msg);
+        }
+
+        // Карточка поверх страницы: работает всегда и везде
+        function cwShowToast(msg) {
+            const old = document.getElementById('cwToast');
+            if (old) old.remove();
+            const box = document.createElement('div');
+            box.id = 'cwToast';
+            box.className = 'cw-toast';
+            box.innerHTML =
+                `<div class="from"><svg class="ic-sm"><use href="#i-chat"></use></svg>${esc(msg.sender_name)}</div>` +
+                `<div class="body">${esc(msg.text)}</div>`;
+            box.onclick = () => {
+                box.remove();
+                cwOpen();
+                if (msg.is_private) cwOpenPrivate(msg.sender_id, msg.sender_name);
+                else cwOpenGeneral();
+            };
+            document.body.appendChild(box);
+            clearTimeout(cwToastTimer);
+            cwToastTimer = setTimeout(() => box.remove(), 7000);
+        }
+
+        // Короткий сигнал. Отдельного файла не нужно — тон синтезируется
+        // средствами браузера.
+        function cwBeep() {
+            try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) return;
+                const ctx = new Ctx();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, ctx.currentTime);
+                osc.frequency.setValueAtTime(660, ctx.currentTime + 0.09);
+                gain.gain.setValueAtTime(0.06, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.start(); osc.stop(ctx.currentTime + 0.3);
+                setTimeout(() => ctx.close(), 500);
+            } catch (e) { /* звук недоступен — не беда */ }
+        }
+
+        // Уведомление операционной системы. Браузер разрешает их только на
+        // защищённом соединении (https или localhost), поэтому по сети
+        // внутри предприятия оно обычно не сработает — карточка выше
+        // остаётся основным способом.
+        function cwSystemNotify(msg) {
+            if (!('Notification' in window) || Notification.permission !== 'granted') return;
+            try {
+                const n = new Notification(msg.sender_name, { body: msg.text, tag: 'leko-chat' });
+                n.onclick = () => {
+                    window.focus(); n.close(); cwOpen();
+                    if (msg.is_private) cwOpenPrivate(msg.sender_id, msg.sender_name);
+                    else cwOpenGeneral();
+                };
+            } catch (e) { /* браузер отказал */ }
+        }
+
+        // Отметить открытый диалог прочитанным
+        async function cwMarkRead() {
+            try {
+                await apiCall('/chat/read/', 'POST',
+                              cwActiveChat ? { with: parseInt(cwActiveChat) } : {});
+                await cwRefreshUnread(false);
+            } catch (e) { /* не критично */ }
+        }
+
+        let cwActiveChat = '';      // '' = общий, иначе id собеседника
+        let cwLastId = 0;
+        let cwPoll = null;
+        let cwWidgetOpen = false;
+
+        function cwOpen() {
+            document.getElementById('chatWidget').classList.add('open');
+            document.getElementById('chatFab').style.display = 'none';
+            cwWidgetOpen = true;
+            cwOpenGeneral();
+            if (!cwPoll) cwPoll = setInterval(() => { if (cwWidgetOpen) cwLoadMessages(false); }, 3000);
+        }
+        function cwClose() {
+            document.getElementById('chatWidget').classList.remove('open');
+            document.getElementById('chatFab').style.display = 'block';
+            cwWidgetOpen = false;
+        }
+
+        function cwOpenGeneral() {
+            cwActiveChat = ''; cwLastId = 0;
+            setTimeout(cwMarkRead, 300);   // сообщения на экране — значит прочитаны
+            document.querySelector('.cw-title').textContent = 'Чат сотрудников';
+            document.getElementById('cwTabGeneral').classList.add('active');
+            document.getElementById('cwTabPrivate').classList.remove('active');
+            document.getElementById('cwContacts').classList.remove('show');
+            document.getElementById('cwChat').classList.add('show');
+            document.getElementById('cwBack').style.display = 'none';
+            document.getElementById('cwMessages').innerHTML = '<div class="cw-empty">Загрузка...</div>';
+            cwLoadMessages(true);
+        }
+
+        async function cwShowContacts() {
+            document.querySelector('.cw-title').textContent = 'Чат сотрудников';
+            document.getElementById('cwTabGeneral').classList.remove('active');
+            document.getElementById('cwTabPrivate').classList.add('active');
+            document.getElementById('cwChat').classList.remove('show');
+            const box = document.getElementById('cwContacts');
+            box.classList.add('show');
+            box.innerHTML = '<div class="cw-empty">Загрузка...</div>';
+            try {
+                const contacts = await apiCall('/chat/contacts/');
+                if (contacts.length === 0) { box.innerHTML = '<div class="cw-empty">Нет других сотрудников</div>'; return; }
+                box.innerHTML = contacts.map(c => `
+                    <div class="cw-contact" data-id="${c.id}"
+                         onclick="cwOpenPrivate('${c.id}', '${(c.name||'').replace(/'/g,'')}')">
+                        <div>
+                            <div class="nm">${esc(c.name)}</div>
+                            <div class="rl">${esc(c.role)}</div>
+                        </div>
+                        <span class="cw-badge" style="display:none">0</span>
+                    </div>`).join('');
+                cwPaintBadges();   // проставить счётчики у контактов
+            } catch (e) { box.innerHTML = '<div class="cw-empty">Не удалось загрузить</div>'; }
+        }
+
+        function cwOpenPrivate(id, name) {
+            cwActiveChat = id; cwLastId = 0;
+            setTimeout(cwMarkRead, 300);
+            document.getElementById('cwContacts').classList.remove('show');
+            document.getElementById('cwChat').classList.add('show');
+            document.getElementById('cwBack').style.display = 'block';
+            document.querySelector('.cw-title').textContent = name;
+            document.getElementById('cwMessages').innerHTML = '<div class="cw-empty">Загрузка...</div>';
+            cwLoadMessages(true);
+        }
+
+        async function cwLoadMessages(reset) {
+            try {
+                let url = '/chat/messages/';
+                const params = [];
+                if (cwActiveChat) params.push('with=' + cwActiveChat);
+                if (!reset && cwLastId) params.push('after=' + cwLastId);
+                if (params.length) url += '?' + params.join('&');
+                const msgs = await apiCall(url);
+                const box = document.getElementById('cwMessages');
+                if (reset) box.innerHTML = '';
+                if (reset && msgs.length === 0) { box.innerHTML = '<div class="cw-empty">Пока нет сообщений</div>'; return; }
+                const empty = box.querySelector('.cw-empty');
+                if (empty && msgs.length) empty.remove();
+                const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+                msgs.forEach(m => {
+                    cwLastId = Math.max(cwLastId, m.id);
+                    const mine = m.sender_id === cwMyId;
+                    const tm = new Date(m.created_at).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+                    const d = document.createElement('div');
+                    d.className = 'cw-msg ' + (mine ? 'mine' : 'theirs');
+                    d.innerHTML = (!mine && !cwActiveChat ? `<div class="snd">${cwEsc(m.sender_name)}</div>` : '') +
+                        `<div>${cwEsc(m.text)}</div><div class="tm">${tm}</div>`;
+                    box.appendChild(d);
+                });
+                if (reset || atBottom) box.scrollTop = box.scrollHeight;
+                // Пришли новые сообщения в открытый диалог — они прочитаны
+                if (!reset && msgs.length && cwWidgetOpen) cwMarkRead();
+            } catch (e) {}
+        }
+
+        function cwEsc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        // Опрос счётчиков идёт всегда, даже когда виджет закрыт
+        cwRefreshUnread(false);
+        cwUnreadTimer = setInterval(() => cwRefreshUnread(true), 10000);
+
+        // Разрешение на системные уведомления спрашиваем один раз,
+        // после первого действия сотрудника — навязчивый запрос при
+        // загрузке страницы браузеры часто блокируют.
+        document.addEventListener('click', function askOnce() {
+            document.removeEventListener('click', askOnce);
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission().catch(() => {});
+            }
+        }, { once: true });
+
+        async function cwSend() {
+            const input = document.getElementById('cwInput');
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+            try {
+                const data = { text: text };
+                if (cwActiveChat) data.recipient = parseInt(cwActiveChat);
+                await apiCall('/chat/messages/', 'POST', data);
+                cwLoadMessages(false);
+            } catch (e) { input.value = text; }
+        }
+    </script>
+    {% endif %}
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

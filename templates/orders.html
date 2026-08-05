@@ -1,0 +1,215 @@
+{% extends 'base.html' %}
+{% block title %}Заказы | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-bag"></use></svg> Заказы покупателей{% endblock %}
+
+{% block extra_css %}
+<style>
+    .order-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 18px; }
+    .order-card { background: #fff; border: 1px solid var(--line-strong); border-radius: 8px; padding: 18px; }
+    .order-card:hover { border-color: var(--slate-800); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .order-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+    .order-num { font-size: 17px; font-weight: 700; color: var(--slate-800); }
+    .order-date { font-size: 12px; color: var(--ink-3); }
+    .badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .st-new { background: var(--warn-soft); color: var(--warn); }
+    .st-confirmed { background: var(--info-soft); color: var(--info); }
+    .st-shipped { background: var(--ok-soft); color: var(--ok); }
+    .st-cancelled { background: var(--stop-soft); color: var(--stop); }
+    .cust { font-size: 14px; color: var(--ink); margin-bottom: 4px; }
+    .cust-extra { font-size: 13px; color: var(--ink-2); margin-bottom: 12px; line-height: 1.5; }
+    .items { background: var(--surface-alt); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; max-height: 160px; overflow-y: auto; }
+    .item-row { font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; }
+    .item-row:last-child { border-bottom: none; }
+    .total { text-align: right; font-size: 18px; font-weight: 700; color: var(--slate-800); margin-bottom: 12px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-sm { padding: 8px 14px; border: none; border-radius: 5px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .b-confirm { background: var(--info); color: #fff; }
+    .b-ship { background: var(--ok); color: #fff; }
+    .b-cancel { background: var(--stop); color: #fff; }
+    .loading, .empty { text-align: center; padding: 50px 20px; color: var(--ink-3); }
+    .alert { padding: 14px; border-radius: 5px; margin-bottom: 18px; border-left: 4px solid; }
+    .alert-success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+    .alert-error { background: var(--stop-soft); color: var(--stop); border-color: var(--stop); }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: #fff; padding: 28px; border-radius: 8px; max-width: 420px; width: 90%; }
+    .modal-content h2 { color: var(--slate-800); margin-bottom: 16px; font-size: 20px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-weight: 500; }
+    .form-group select { width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; }
+    .form-actions { display: flex; gap: 10px; }
+    .form-actions button { flex: 1; padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: var(--slate-800); color: #fff; }
+    .btn-secondary { background: var(--line-strong); color: var(--ink); }
+    .stat-row { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+    .stat { background: var(--surface-alt); border-left: 4px solid var(--slate-800); border-radius: 6px; padding: 12px 18px; }
+    .stat .lbl { font-size: 12px; color: var(--ink-2); }
+    .stat .val { font-size: 22px; font-weight: 700; color: var(--slate-800); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="stat-row" id="stats"></div>
+
+<div class="toolbar">
+    <span class="search-wrap"><svg class="ic"><use href="#i-search"></use></svg><input type="text" id="search" placeholder="Поиск по номеру, имени или телефону"></span>
+    <select id="statusFilter">
+        <option value="">Все заказы</option>
+        <option value="new">Новые</option>
+        <option value="confirmed">Подтверждённые</option>
+        <option value="shipped">Отгруженные</option>
+        <option value="cancelled">Отменённые</option>
+    </select>
+    <button class="btn btn-ghost" onclick="loadOrders()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
+</div>
+
+<div id="area"><div class="loading">Загрузка заказов...</div></div>
+
+<div class="modal" id="shipModal">
+    <div class="modal-content">
+        <h2><svg class="ic"><use href="#i-box"></use></svg> Отгрузка заказа</h2>
+        <p style="color:var(--ink-2); font-size:14px; margin-bottom:16px;">
+            Товар будет списан со склада, создастся расходный документ.</p>
+        <div class="form-group">
+            <label>Склад отгрузки *</label>
+            <select id="shipWarehouse"><option value="">Загрузка...</option></select>
+        </div>
+        <div class="form-actions">
+            <button class="btn-primary" onclick="doShip()">Отгрузить</button>
+            <button class="btn-secondary" onclick="closeShip()">Отмена</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allOrders = [];
+    let shipOrderId = null;
+
+    async function loadOrders() {
+        const area = document.getElementById('area');
+        area.innerHTML = '<div class="loading">Загрузка заказов...</div>';
+        try {
+            const st = document.getElementById('statusFilter').value;
+            const url = st ? `/orders/?status=${st}` : '/orders/';
+            allOrders = await apiCallAll(url);
+            renderStats();
+            renderOrders();
+        } catch (e) {
+            area.innerHTML = `<div class="alert alert-error">Ошибка: ${esc(e.message)}</div>`;
+        }
+    }
+
+    function renderStats() {
+        const count = s => allOrders.filter(o => o.status === s).length;
+        document.getElementById('stats').innerHTML = `
+            <div class="stat"><div class="lbl">Новые</div><div class="val">${count('new')}</div></div>
+            <div class="stat"><div class="lbl">Подтверждённые</div><div class="val">${count('confirmed')}</div></div>
+            <div class="stat"><div class="lbl">Отгружено</div><div class="val">${count('shipped')}</div></div>
+        `;
+    }
+
+    function renderOrders() {
+        const area = document.getElementById('area');
+        const q = document.getElementById('search').value.toLowerCase().trim();
+        const list = allOrders.filter(o =>
+            !q || o.number.toLowerCase().includes(q) ||
+            o.customer_name.toLowerCase().includes(q) ||
+            o.customer_phone.toLowerCase().includes(q));
+
+        if (list.length === 0) {
+            area.innerHTML = '<div class="empty">Заказов не найдено</div>';
+            return;
+        }
+
+        area.innerHTML = '<div class="order-list">' + list.map(o => {
+            const d = new Date(o.created_at).toLocaleString('ru-RU',
+                {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+            const items = o.items.map(i => `
+                <div class="item-row">
+                    <span>${esc(i.product_name)} (${esc(i.size)}, ${esc(i.color)})</span>
+                    <span style="white-space:nowrap;">${i.quantity} × ${Number(i.price).toLocaleString('ru-RU')} ₽</span>
+                </div>`).join('');
+            return `
+            <div class="order-card">
+                <div class="order-head">
+                    <div>
+                        <div class="order-num">${esc(o.number)}</div>
+                        <div class="order-date">${d}</div>
+                    </div>
+                    <span class="badge st-${o.status}">${esc(o.status_display)}</span>
+                </div>
+                <div class="cust"><strong>${esc(o.customer_name)}</strong> · ${esc(o.customer_phone)}</div>
+                <div class="cust-extra">
+                    ${o.customer_email ? '<svg class="ic"><use href="#i-mail"></use></svg> ' + esc(o.customer_email) + '<br>' : ''}
+                    ${o.address ? '<svg class="ic"><use href="#i-pin"></use></svg> ' + esc(o.address) + '<br>' : ''}
+                    ${o.comment ? '<svg class="ic"><use href="#i-chat"></use></svg> ' + esc(o.comment) : ''}
+                </div>
+                <div class="items">${items}</div>
+                <div class="total">Итого: ${Number(o.total).toLocaleString('ru-RU')} ₽</div>
+                <div class="actions">
+                    ${o.status === 'new' ? `<button class="btn-sm b-confirm" onclick="confirmOrder(${o.id})"><svg class="ic"><use href="#i-check"></use></svg> Подтвердить</button>` : ''}
+                    ${(o.status === 'new' || o.status === 'confirmed')
+                        ? `<button class="btn-sm b-ship" onclick="openShip(${o.id})"><svg class="ic"><use href="#i-box"></use></svg> Отгрузить</button>` : ''}
+                    ${o.status !== 'shipped' && o.status !== 'cancelled'
+                        ? `<button class="btn-sm b-cancel" onclick="cancelOrder(${o.id})"><svg class="ic"><use href="#i-x"></use></svg> Отменить</button>` : ''}
+                </div>
+            </div>`;
+        }).join('') + '</div>';
+    }
+
+    async function confirmOrder(id) {
+        if (!confirm('Подтвердить заказ?')) return;
+        try {
+            await apiCall(`/orders/${id}/confirm/`, 'POST', {});
+            showMessage('Заказ подтверждён', 'success');
+            loadOrders();
+        } catch (e) { showMessage('' + e.message, 'error'); }
+    }
+
+    async function cancelOrder(id) {
+        if (!confirm('Отменить заказ? Резерв товара будет снят.')) return;
+        try {
+            await apiCall(`/orders/${id}/cancel/`, 'POST', {});
+            showMessage('Заказ отменён, резерв снят', 'success');
+            loadOrders();
+        } catch (e) { showMessage('' + e.message, 'error'); }
+    }
+
+    async function openShip(id) {
+        shipOrderId = id;
+        try {
+            const wh = await apiCallAll('/warehouses/');
+            document.getElementById('shipWarehouse').innerHTML =
+                '<option value="">Выберите склад...</option>' +
+                wh.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+        } catch (e) {}
+        document.getElementById('shipModal').classList.add('active');
+    }
+
+    function closeShip() { document.getElementById('shipModal').classList.remove('active'); }
+
+    async function doShip() {
+        const wh = document.getElementById('shipWarehouse').value;
+        if (!wh) { showMessage('Выберите склад отгрузки', 'error'); return; }
+        try {
+            await apiCall(`/orders/${shipOrderId}/ship/`, 'POST', { warehouse: parseInt(wh) });
+            showMessage('Заказ отгружен, товар списан со склада', 'success');
+            closeShip();
+            loadOrders();
+        } catch (e) { showMessage('' + e.message, 'error'); }
+    }
+
+    function showMessage(text, type) {
+        const m = document.getElementById('message');
+        m.innerHTML = `<div class="alert alert-${type === 'error' ? 'error' : 'success'}">${text}</div>`;
+        window.scrollTo(0, 0);
+        setTimeout(() => { m.innerHTML = ''; }, 6000);
+    }
+
+    document.getElementById('search').addEventListener('input', renderOrders);
+    document.getElementById('statusFilter').addEventListener('change', loadOrders);
+    loadOrders();
+</script>
+{% endblock %}

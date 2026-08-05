@@ -1,0 +1,220 @@
+{% extends 'base.html' %}
+{% block title %}Сотрудники | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-users"></use></svg> Сотрудники{% endblock %}
+
+{% block extra_css %}
+<style>
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    table th { background: var(--surface-alt); padding: 12px; text-align: left; font-weight: 600; border-bottom: 2px solid var(--line-strong); }
+    table td { padding: 12px; border-bottom: 1px solid var(--line); }
+    table tr:hover { background: var(--surface-alt); }
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 500px;
+        width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+    .modal-content h2 { margin-bottom: 20px; color: var(--slate-800); }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+    .form-group input, .form-group select {
+        width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; font-family: inherit; }
+    .form-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .form-actions button { flex: 1; padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: var(--slate-800); color: white; }
+    .btn-secondary { background: var(--line-strong); color: var(--ink); }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 3px; font-size: 12px; }
+    .role-admin { background: var(--stop-soft); color: var(--stop); }
+    .role-storekeeper { background: var(--info-soft); color: var(--info); }
+    .role-economist { background: var(--ok-soft); color: var(--ok); }
+    .role-manager { background: #fff3e0; color: var(--warn); }
+    .status-off { color: var(--ink-3); font-style: italic; }
+    .loading { text-align: center; padding: 40px; color: var(--ink-3); }
+    .empty { text-align: center; padding: 40px; color: var(--ink-3); }
+    .alert { padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid; }
+    .alert-success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+    .alert-error { background: var(--stop-soft); color: var(--stop); border-color: var(--stop); }
+    .hint { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="toolbar">
+    <button class="btn btn-primary" onclick="openModal()">+ Добавить сотрудника</button>
+</div>
+
+<div id="area"><div class="loading">Загрузка...</div></div>
+
+<div class="modal" id="userModal">
+    <div class="modal-content">
+        <h2 id="modalTitle">Добавить сотрудника</h2>
+        <form id="userForm">
+            <div class="form-group">
+                <label>Логин (для входа) *</label>
+                <input type="text" id="username" required autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label id="passwordLabel">Пароль *</label>
+                <input type="password" id="password" autocomplete="new-password">
+                <div class="hint" id="passwordHint">Придумайте пароль для входа сотрудника.</div>
+            </div>
+            <div class="form-group">
+                <label>Фамилия</label>
+                <input type="text" id="last_name">
+            </div>
+            <div class="form-group">
+                <label>Имя</label>
+                <input type="text" id="first_name">
+            </div>
+            <div class="form-group">
+                <label>Отчество</label>
+                <input type="text" id="patronymic">
+            </div>
+            <div class="form-group">
+                <label>Телефон</label>
+                <input type="text" id="phone">
+            </div>
+            <div class="form-group">
+                <label>Роль *</label>
+                <select id="role" required>
+                    <option value="storekeeper">Кладовщик</option>
+                    <option value="economist">Экономист</option>
+                    <option value="manager">Менеджер</option>
+                    <option value="admin">Администратор</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label><input type="checkbox" id="is_active" checked style="width:auto; margin-right:8px;">Учётная запись активна</label>
+                <div class="hint">Снимите галочку, чтобы временно заблокировать вход сотруднику.</div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="closeModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const roleNames = {'admin': 'Администратор', 'storekeeper': 'Кладовщик', 'economist': 'Экономист', 'manager': 'Менеджер'};
+    let editId = null;
+
+    async function loadUsers() {
+        const area = document.getElementById('area');
+        area.innerHTML = '<div class="loading">Загрузка...</div>';
+        try {
+            const list = await apiCallAll('/users/');
+            if (list.length === 0) { area.innerHTML = '<div class="empty">Сотрудников пока нет</div>'; return; }
+            area.innerHTML = `<table><thead><tr>
+                <th>ФИО</th><th>Логин</th><th>Роль</th><th>Телефон</th><th>Статус</th><th>Действия</th>
+            </tr></thead><tbody>
+                ${list.map(u => `<tr>
+                    <td><strong>${esc(u.full_name)}</strong></td>
+                    <td>${esc(u.username)}</td>
+                    <td><span class="badge role-${u.role}">${esc(u.role_display)}</span></td>
+                    <td>${esc(u.phone || '—')}</td>
+                    <td>${u.is_active ? 'Активен' : '<span class="status-off">Заблокирован</span>'}</td>
+                    <td><div class="row-actions">
+                        <button class="act act-edit" title="Редактировать" onclick='editUser(${JSON.stringify(u)})'><svg class="ic"><use href="#i-edit"></use></svg></button>
+                        <button class="act act-del" title="Удалить" onclick="deleteUser(${u.id}, '${esc(u.username)}')"><svg class="ic"><use href="#i-trash"></use></svg></button>
+                    </div></td>
+                </tr>`).join('')}
+            </tbody></table>`;
+        } catch (error) {
+            if (error.message.includes('403') || error.message.toLowerCase().includes('permission') || error.message.includes('credentials')) {
+                area.innerHTML = '<div class="alert alert-error">Доступ к управлению сотрудниками есть только у администратора.</div>';
+            } else {
+                area.innerHTML = `<div class="alert alert-error">Ошибка: ${esc(error.message)}</div>`;
+            }
+        }
+    }
+
+    function openModal() {
+        editId = null;
+        document.getElementById('modalTitle').textContent = 'Добавить сотрудника';
+        document.getElementById('userForm').reset();
+        document.getElementById('is_active').checked = true;
+        document.getElementById('username').disabled = false;
+        document.getElementById('passwordLabel').textContent = 'Пароль *';
+        document.getElementById('passwordHint').textContent = 'Придумайте пароль для входа сотрудника.';
+        document.getElementById('userModal').classList.add('active');
+    }
+
+    function editUser(u) {
+        editId = u.id;
+        document.getElementById('modalTitle').textContent = 'Редактировать сотрудника';
+        document.getElementById('username').value = u.username;
+        document.getElementById('username').disabled = true;  // логин не меняем
+        document.getElementById('password').value = '';
+        document.getElementById('passwordLabel').textContent = 'Новый пароль';
+        document.getElementById('passwordHint').textContent = 'Оставьте пустым, чтобы не менять пароль.';
+        document.getElementById('last_name').value = u.last_name || '';
+        document.getElementById('first_name').value = u.first_name || '';
+        document.getElementById('patronymic').value = u.patronymic || '';
+        document.getElementById('phone').value = u.phone || '';
+        document.getElementById('role').value = u.role;
+        document.getElementById('is_active').checked = u.is_active;
+        document.getElementById('userModal').classList.add('active');
+    }
+
+    function closeModal() { document.getElementById('userModal').classList.remove('active'); }
+
+    async function saveUser(e) {
+        e.preventDefault();
+        const password = document.getElementById('password').value;
+
+        if (!editId && !password) {
+            showMessage('Для нового сотрудника нужно задать пароль', 'error');
+            return;
+        }
+
+        const data = {
+            username: document.getElementById('username').value,
+            last_name: document.getElementById('last_name').value,
+            first_name: document.getElementById('first_name').value,
+            patronymic: document.getElementById('patronymic').value,
+            phone: document.getElementById('phone').value,
+            role: document.getElementById('role').value,
+            is_active: document.getElementById('is_active').checked
+        };
+        if (password) data.password = password;
+
+        try {
+            if (editId) {
+                await apiCall(`/users/${editId}/`, 'PATCH', data);
+                showMessage('Данные сотрудника обновлены', 'success');
+            } else {
+                await apiCall('/users/', 'POST', data);
+                showMessage('Сотрудник добавлен', 'success');
+            }
+            closeModal();
+            loadUsers();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    async function deleteUser(id, username) {
+        if (!confirm(`Удалить сотрудника «${username}»?`)) return;
+        try {
+            await apiCall(`/users/${id}/`, 'DELETE');
+            showMessage('Сотрудник удалён', 'success');
+            loadUsers();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    function showMessage(text, type) {
+        const msg = document.getElementById('message');
+        const cls = type === 'error' ? 'alert-error' : 'alert-success';
+        msg.innerHTML = `<div class="alert ${cls}">${text}</div>`;
+        window.scrollTo(0, 0);
+        setTimeout(() => { msg.innerHTML = ''; }, 5000);
+    }
+
+    document.getElementById('userForm').addEventListener('submit', saveUser);
+    loadUsers();
+</script>
+{% endblock %}

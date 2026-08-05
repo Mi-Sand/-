@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+{% block title %}Отчёты | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-chart"></use></svg> Отчёты{% endblock %}
+
+{% block extra_css %}
+<style>
+    .tabs { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; border-bottom: 2px solid var(--line); }
+    .tab { padding: 12px 20px; cursor: pointer; border: none; background: none; font-size: 14px;
+        color: var(--ink-2); border-bottom: 3px solid transparent; margin-bottom: -2px; }
+    .tab:hover { color: var(--slate-800); }
+    .tab.active { color: var(--slate-800); font-weight: 600; border-bottom-color: var(--slate-800); }
+    .report-controls { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+    .report-controls input, .report-controls select {
+        padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 14px; }
+    .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; }
+    .btn-primary { background: var(--slate-800); color: white; }
+    .btn-primary:hover { background: var(--slate-900); }
+    .btn-excel { background: var(--ok); color: white; }
+    .btn-excel:hover { background: var(--ok); }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    table th { background: var(--slate-800); color: white; padding: 12px; text-align: left; font-weight: 600; font-size: 13px; }
+    table td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+    table tr:hover { background: var(--surface-alt); }
+    .summary { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
+    .summary-card { background: var(--surface-alt); padding: 15px 20px; border-radius: 8px; border-left: 4px solid var(--slate-800); }
+    .summary-card .label { font-size: 12px; color: var(--ink-2); }
+    .summary-card .value { font-size: 24px; font-weight: 600; color: var(--slate-800); }
+    .loading { text-align: center; padding: 40px; color: var(--ink-3); }
+    .empty { text-align: center; padding: 40px; color: var(--ink-3); }
+    .error { background: var(--stop-soft); color: var(--stop); padding: 15px; border-radius: 4px; border-left: 4px solid var(--stop); margin-bottom: 20px; }
+    .neg { color: var(--stop); font-weight: 600; }
+    .pos { color: var(--ok); font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="tabs">
+    <button class="tab active" onclick="switchTab('stock', this)"><svg class="ic"><use href="#i-box"></use></svg> Остатки</button>
+    <button class="tab" onclick="switchTab('movement', this)"><svg class="ic"><use href="#i-refresh"></use></svg> Движение</button>
+    <button class="tab" onclick="switchTab('reorder', this)"><svg class="ic"><use href="#i-cart"></use></svg> К закупке</button>
+    <button class="tab" onclick="switchTab('inventory', this)"><svg class="ic"><use href="#i-clipboard"></use></svg> Инвентаризации</button>
+</div>
+
+<div id="controls" class="report-controls"></div>
+<div id="reportArea"><div class="loading">Выберите отчёт</div></div>
+
+<script>
+    let currentTab = 'stock';
+
+    function switchTab(tab, el) {
+        currentTab = tab;
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+        renderControls();
+        loadReport();
+    }
+
+    function renderControls() {
+        const c = document.getElementById('controls');
+        if (currentTab === 'stock') {
+            c.innerHTML = `
+                <button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
+                <button class="btn btn-excel" onclick="exportExcel()"><svg class="ic"><use href="#i-inbound"></use></svg> Выгрузить в Excel</button>`;
+        } else if (currentTab === 'movement') {
+            c.innerHTML = `
+                <label>Период (дней назад):</label>
+                <select id="days">
+                    <option value="7">7 дней</option>
+                    <option value="30" selected>30 дней</option>
+                    <option value="90">90 дней</option>
+                    <option value="365">Год</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Показать</button>`;
+        } else {
+            c.innerHTML = `<button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>`;
+        }
+    }
+
+    async function loadReport() {
+        const area = document.getElementById('reportArea');
+        area.innerHTML = '<div class="loading">Загрузка отчёта...</div>';
+        try {
+            if (currentTab === 'stock') await loadStock(area);
+            else if (currentTab === 'movement') await loadMovement(area);
+            else if (currentTab === 'reorder') await loadReorder(area);
+            else if (currentTab === 'inventory') await loadInventory(area);
+        } catch (error) {
+            area.innerHTML = `<div class="error">Ошибка загрузки: ${esc(error.message)}</div>`;
+        }
+    }
+
+    async function loadStock(area) {
+        const data = await apiCall('/reports/stock/');
+        const rows = data['строки'] || [];
+        if (rows.length === 0) { area.innerHTML = '<div class="empty">Нет остатков на складах</div>'; return; }
+        area.innerHTML = `
+            <div class="summary"><div class="summary-card">
+                <div class="label">Всего позиций с остатком</div>
+                <div class="value">${data['всего_позиций']}</div>
+            </div></div>
+            <table><thead><tr>
+                <th>Склад</th><th>Тип</th><th>Наименование</th><th>Артикул</th>
+                <th>Размер</th><th>Цвет</th><th>Количество</th><th>Ед.</th>
+            </tr></thead><tbody>
+                ${rows.map(r => `<tr>
+                    <td>${r['склад']}</td><td>${r['тип']}</td><td>${r['наименование']}</td>
+                    <td>${r['артикул']}</td><td>${r['размер']}</td><td>${r['цвет']}</td>
+                    <td>${r['количество']}</td><td>${r['единица']}</td>
+                </tr>`).join('')}
+            </tbody></table>`;
+    }
+
+    async function loadMovement(area) {
+        const days = document.getElementById('days').value;
+        const data = await apiCall(`/reports/movement/?days=${days}`);
+        const rows = data['строки'] || [];
+        area.innerHTML = `
+            <div class="summary">
+                <div class="summary-card"><div class="label">Приход за период</div><div class="value pos">+${data['приход_кол']}</div></div>
+                <div class="summary-card"><div class="label">Расход за период</div><div class="value neg">${data['расход_кол']}</div></div>
+                <div class="summary-card"><div class="label">Всего операций</div><div class="value">${data['всего_операций']}</div></div>
+            </div>
+            ${rows.length === 0 ? '<div class="empty">Нет операций за выбранный период</div>' : `
+            <table><thead><tr>
+                <th>Дата</th><th>Тип</th><th>Товар</th><th>Кол-во</th><th>Склад</th><th>Пользователь</th>
+            </tr></thead><tbody>
+                ${rows.map(r => `<tr>
+                    <td>${r['дата']}</td><td>${r['тип']}</td><td>${r['товар']}</td>
+                    <td>${r['количество']}</td><td>${r['склад']}</td><td>${r['пользователь']}</td>
+                </tr>`).join('')}
+            </tbody></table>`}`;
+    }
+
+    async function loadReorder(area) {
+        const data = await apiCall('/reports/reorder/');
+        const rows = data['строки'] || [];
+        if (rows.length === 0) {
+            area.innerHTML = '<div class="empty"><svg class="ic"><use href="#i-check"></use></svg> Все материалы в достаточном количестве, закупка не требуется</div>';
+            return;
+        }
+        area.innerHTML = `
+            <div class="summary"><div class="summary-card" style="border-left-color:var(--stop);">
+                <div class="label">Позиций в дефиците</div>
+                <div class="value neg">${data['позиций_в_дефиците']}</div>
+            </div></div>
+            <table><thead><tr>
+                <th>Наименование</th><th>Категория</th><th>Текущий остаток</th>
+                <th>Минимум</th><th>Нехватка</th><th>Ед.</th>
+            </tr></thead><tbody>
+                ${rows.map(r => `<tr>
+                    <td>${r['наименование']}</td><td>${r['категория']}</td>
+                    <td>${r['текущий_остаток']}</td><td>${r['минимум']}</td>
+                    <td class="neg">${r['недостаток']}</td><td>${r['единица']}</td>
+                </tr>`).join('')}
+            </tbody></table>`;
+    }
+
+    async function loadInventory(area) {
+        const data = await apiCall('/reports/inventory/');
+        const results = data['результаты'] || [];
+        if (results.length === 0) {
+            area.innerHTML = '<div class="empty">Завершённых инвентаризаций пока нет</div>';
+            return;
+        }
+        area.innerHTML = `
+            <div class="summary"><div class="summary-card">
+                <div class="label">Всего инвентаризаций</div>
+                <div class="value">${data['всего_инвентаризаций']}</div>
+            </div></div>
+            <table><thead><tr>
+                <th>Номер</th><th>Склад</th><th>Дата</th><th>Недостач</th><th>Излишков</th>
+            </tr></thead><tbody>
+                ${results.map(r => `<tr>
+                    <td>${r['номер']}</td><td>${r['склад']}</td>
+                    <td>${r['дата_завершения'] || '—'}</td>
+                    <td class="${r['недостач'] > 0 ? 'neg' : ''}">${r['недостач']}</td>
+                    <td class="${r['излишков'] > 0 ? 'pos' : ''}">${r['излишков']}</td>
+                </tr>`).join('')}
+            </tbody></table>`;
+    }
+
+    function exportExcel() {
+        // Открываем эндпоинт экспорта напрямую — браузер скачает файл
+        window.location.href = '/api/reports/stock/export/';
+    }
+
+    function showMessage(text, type) {
+        const msg = document.getElementById('message');
+        msg.innerHTML = `<div class="error">${text}</div>`;
+        setTimeout(() => { msg.innerHTML = ''; }, 5000);
+    }
+
+    renderControls();
+    loadReport();
+</script>
+{% endblock %}

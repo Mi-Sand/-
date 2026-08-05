@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход | Складской учёт ООО «ЛЕКО»</title>
+    <style>
+        :root {
+            --slate-900: #12202B; --slate-800: #1B2E3D; --slate-700: #26404F;
+            --ink: #16232D; --ink-2: #55697A; --ink-3: #8496A5;
+            --line: #DCE3E8; --line-strong: #C3CED6;
+            --mark: #D98A1F; --stop: #B23A32; --stop-soft: #FBEBEA;
+            --sans: "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+            --mono: "JetBrains Mono", "SF Mono", "Consolas", "DejaVu Sans Mono", monospace;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--sans); font-size: 14px; color: var(--ink);
+            background: var(--slate-900);
+            min-height: 100vh; display: flex;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Левая половина — фирменный блок.
+           Диагональная штриховка повторяет разметку складских проездов. */
+        .brand-side {
+            flex: 1;
+            background:
+                repeating-linear-gradient(45deg,
+                    rgba(217,138,31,.05) 0 14px,
+                    transparent 14px 28px),
+                var(--slate-900);
+            display: flex; flex-direction: column; justify-content: space-between;
+            padding: 46px 44px;
+            color: #fff;
+        }
+        .brand-side .eyebrow {
+            font-family: var(--mono); font-size: 11px; letter-spacing: .2em;
+            text-transform: uppercase; color: var(--mark);
+        }
+        .brand-side h1 {
+            font-size: 34px; font-weight: 650; letter-spacing: -.025em;
+            line-height: 1.15; margin: 14px 0 16px; max-width: 12ch;
+        }
+        .brand-side p { color: #94A9B8; font-size: 14.5px; max-width: 40ch; line-height: 1.6; }
+        .facts { display: flex; gap: 34px; }
+        .fact .k {
+            font-family: var(--mono); font-size: 22px; font-weight: 600;
+            font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+        }
+        .fact .v {
+            font-size: 12px; color: #7E97A7; margin-top: 2px;
+        }
+
+        /* Правая половина — форма */
+        .form-side {
+            width: 460px; background: #fff;
+            display: flex; align-items: center; justify-content: center;
+            padding: 40px 46px;
+        }
+        .form-wrap { width: 100%; max-width: 320px; }
+        .form-wrap h2 { font-size: 21px; font-weight: 620; letter-spacing: -.02em; }
+        .form-wrap .lead { color: var(--ink-2); margin: 6px 0 26px; font-size: 13.5px; }
+
+        .field { margin-bottom: 15px; }
+        .field label {
+            display: block; font-size: 12px; font-weight: 550;
+            color: var(--ink-2); margin-bottom: 5px;
+        }
+        .field input {
+            width: 100%; padding: 10px 12px;
+            font: inherit; font-size: 14px; color: var(--ink);
+            border: 1px solid var(--line-strong); border-radius: 6px;
+            transition: border-color .12s, box-shadow .12s;
+        }
+        .field input:focus {
+            outline: none; border-color: var(--slate-700);
+            box-shadow: 0 0 0 3px rgba(38,64,79,.12);
+        }
+        .field .err { color: var(--stop); font-size: 12px; margin-top: 5px; display: block; }
+
+        .submit {
+            width: 100%; padding: 11px;
+            background: var(--slate-800); color: #fff;
+            border: none; border-radius: 6px; cursor: pointer;
+            font: inherit; font-size: 14.5px; font-weight: 550;
+            margin-top: 8px; transition: background .12s;
+        }
+        .submit:hover { background: var(--slate-700); }
+
+        .warn {
+            background: var(--stop-soft); border: 1px solid #EDC9C6;
+            color: var(--stop); padding: 10px 13px; border-radius: 6px;
+            font-size: 13px; margin-bottom: 18px;
+        }
+        .foot {
+            margin-top: 26px; padding-top: 18px;
+            border-top: 1px solid var(--line);
+            font-size: 12px; color: var(--ink-3);
+        }
+
+        @media (max-width: 860px) {
+            body { flex-direction: column; }
+            .brand-side { padding: 32px 24px; gap: 26px; }
+            .brand-side h1 { font-size: 26px; }
+            .form-side { width: 100%; padding: 30px 24px 44px; }
+        }
+        @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+        :focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+    </style>
+</head>
+<body>
+    <section class="brand-side">
+        <div>
+            <span class="eyebrow">ООО «ЛЕКО» · г. Дмитров</span>
+            <h1>Складской учёт</h1>
+            <p>Материалы, готовая продукция, движение по складам
+               и заказы покупателей — в одном месте.</p>
+        </div>
+        <div class="facts">
+            <div class="fact"><div class="k">4</div><div class="v">склада</div></div>
+            <div class="fact"><div class="k">5</div><div class="v">отчётов</div></div>
+            <div class="fact"><div class="k">24/7</div><div class="v">учёт остатков</div></div>
+        </div>
+    </section>
+
+    <section class="form-side">
+        <div class="form-wrap">
+            <h2>Вход в систему</h2>
+            <p class="lead">Введите данные учётной записи сотрудника.</p>
+
+            {% if form.non_field_errors %}
+            <div class="warn">
+                {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+            </div>
+            {% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="field">
+                    <label for="id_username">Логин</label>
+                    <input type="text" name="username" id="id_username" required autofocus autocomplete="username">
+                    {% if form.username.errors %}<span class="err">{{ form.username.errors.0 }}</span>{% endif %}
+                </div>
+                <div class="field">
+                    <label for="id_password">Пароль</label>
+                    <input type="password" name="password" id="id_password" required autocomplete="current-password">
+                    {% if form.password.errors %}<span class="err">{{ form.password.errors.0 }}</span>{% endif %}
+                </div>
+                <button type="submit" class="submit">Войти</button>
+            </form>
+
+            <p class="foot">Доступ выдаёт администратор системы.</p>
+        </div>
+    </section>
+</body>
+</html>

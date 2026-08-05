@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block title %}Производство | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-factory"></use></svg> Производство продукции{% endblock %}
+
+{% block extra_css %}
+<style>
+    .card { background: white; border: 1px solid var(--line-strong); border-radius: 8px; padding: 25px; max-width: 700px; }
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; margin-bottom: 6px; font-weight: 500; }
+    .form-group input, .form-group select {
+        width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; font-family: inherit; font-size: 14px; }
+    .section-title { font-size: 16px; font-weight: 600; color: var(--slate-800); margin: 25px 0 12px; padding-top: 15px; border-top: 1px solid var(--line); }
+    .mat-row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 10px; background: var(--surface-alt); padding: 12px; border-radius: 4px; }
+    .mat-row .form-group { flex: 1; margin-bottom: 0; }
+    .mat-row button { padding: 10px 14px; background: var(--stop-soft); color: var(--stop); border: none; border-radius: 4px; cursor: pointer; }
+    .btn-add { width: 100%; padding: 10px; background: var(--info-soft); color: var(--info); border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
+    .btn-produce { width: 100%; padding: 14px; background: var(--slate-800); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: 600; margin-top: 20px; }
+    .btn-produce:hover { background: var(--slate-900); }
+    .btn-produce:disabled { opacity: 0.5; cursor: not-allowed; }
+    .alert { padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid; }
+    .alert-success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+    .alert-error { background: var(--stop-soft); color: var(--stop); border-color: var(--stop); }
+    .hint { font-size: 13px; color: var(--ink-3); margin-top: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="card">
+    <p style="color:var(--ink-2); margin-bottom:20px; font-size:14px;">
+        Здесь материалы превращаются в готовую продукцию: система спишет сырьё
+        со склада материалов и оприходует продукцию на склад продукции.
+    </p>
+
+    <form id="produceForm">
+        <div class="form-group">
+            <label>Что производим (продукция) *</label>
+            <select id="product" required><option value="">Загрузка...</option></select>
+        </div>
+        <div class="form-group">
+            <label>Количество продукции *</label>
+            <input type="number" id="quantity" step="0.01" min="0.01" required placeholder="Например: 10">
+        </div>
+        <div class="form-group">
+            <label>Склад для готовой продукции *</label>
+            <select id="product_warehouse" required><option value="">Загрузка...</option></select>
+        </div>
+
+        <div class="section-title">Материалы, которые ушли на производство</div>
+        <div class="form-group">
+            <label>Склад, откуда списываем материалы *</label>
+            <select id="material_warehouse" required><option value="">Загрузка...</option></select>
+        </div>
+
+        <div id="materialsList"></div>
+        <button type="button" class="btn-add" onclick="addMaterialRow()">+ Добавить материал</button>
+
+        <button type="submit" class="btn-produce"><svg class="ic"><use href="#i-factory"></use></svg> Произвести</button>
+    </form>
+</div>
+
+<script>
+    let productsCache = [];
+    let materialsCache = [];
+    let warehousesCache = [];
+
+    async function init() {
+        try {
+            const [prod, mat, wh] = await Promise.all([
+                apiCallAll('/products/'),
+                apiCallAll('/materials/'),
+                apiCallAll('/warehouses/')
+            ]);
+            productsCache = prod;
+            materialsCache = mat;
+            warehousesCache = wh;
+
+            document.getElementById('product').innerHTML =
+                '<option value="">Выберите продукцию...</option>' +
+                productsCache.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.article_number)})</option>`).join('');
+
+            const whOpts = '<option value="">Выберите склад...</option>' +
+                warehousesCache.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+            document.getElementById('product_warehouse').innerHTML = whOpts;
+            document.getElementById('material_warehouse').innerHTML = whOpts;
+
+            addMaterialRow();
+        } catch (error) {
+            showMessage('Ошибка загрузки данных: ' + error.message, 'error');
+        }
+    }
+
+    function addMaterialRow() {
+        const row = document.createElement('div');
+        row.className = 'mat-row';
+        row.innerHTML = `
+            <div class="form-group">
+                <label>Материал</label>
+                <select class="mat-select">
+                    <option value="">Выберите...</option>
+                    ${materialsCache.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group" style="max-width:140px;">
+                <label>Количество</label>
+                <input type="number" class="mat-qty" step="0.01" min="0" placeholder="0">
+            </div>
+            <button type="button" class="btn btn-stop btn-sm" onclick="this.parentElement.remove()"><svg class="ic"><use href="#i-trash"></use></svg></button>
+        `;
+        document.getElementById('materialsList').appendChild(row);
+    }
+
+    async function produce(e) {
+        e.preventDefault();
+        const productId = document.getElementById('product').value;
+        const quantity = document.getElementById('quantity').value;
+        const productWh = document.getElementById('product_warehouse').value;
+        const materialWh = document.getElementById('material_warehouse').value;
+
+        if (!productId || !quantity || !productWh || !materialWh) {
+            showMessage('Заполните все обязательные поля', 'error');
+            return;
+        }
+
+        const materials = [];
+        document.querySelectorAll('.mat-row').forEach(row => {
+            const mid = row.querySelector('.mat-select').value;
+            const mqty = row.querySelector('.mat-qty').value;
+            if (mid && mqty && parseFloat(mqty) > 0) {
+                materials.push({ material: parseInt(mid), quantity: parseFloat(mqty) });
+            }
+        });
+
+        if (materials.length === 0) {
+            if (!confirm('Вы не указали материалы. Произвести продукцию без списания сырья?')) return;
+        }
+
+        const data = {
+            product: parseInt(productId),
+            quantity: parseFloat(quantity),
+            product_warehouse: parseInt(productWh),
+            material_warehouse: parseInt(materialWh),
+            materials: materials
+        };
+
+        const btn = document.querySelector('.btn-produce');
+        btn.disabled = true;
+        try {
+            await apiCall('/produce/', 'POST', data);
+            showMessage(`Произведено! Продукция оприходована, материалы списаны.`, 'success');
+            document.getElementById('produceForm').reset();
+            document.getElementById('materialsList').innerHTML = '';
+            addMaterialRow();
+        } catch (error) {
+            showMessage('' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function showMessage(text, type) {
+        const msg = document.getElementById('message');
+        const cls = type === 'error' ? 'alert-error' : 'alert-success';
+        msg.innerHTML = `<div class="alert ${cls}">${text}</div>`;
+        window.scrollTo(0, 0);
+        setTimeout(() => { msg.innerHTML = ''; }, 6000);
+    }
+
+    document.getElementById('produceForm').addEventListener('submit', produce);
+    init();
+</script>
+{% endblock %}

@@ -1,0 +1,402 @@
+{% extends 'base.html' %}
+{% block title %}Сводка | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-grid"></use></svg>Сводка{% endblock %}
+
+{% block extra_css %}
+    /* Композиция страницы: показатели сверху, ниже график с панелью
+       дефицита в одном ряду, журнал операций — во всю ширину.
+       Ширины подобраны так, чтобы график занимал две трети: этого
+       достаточно для чтения динамики, но он не давит на остальное. */
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .metric { min-width: 0; padding: 10px 15px; }
+    .metric .value { font-size: 21px; }
+
+    .row-main {
+        display: grid; grid-template-columns: 2fr 1fr;
+        gap: 14px; margin: 14px 0;
+        align-items: stretch;
+    }
+    .row-main > .panel { display: flex; flex-direction: column; min-width: 0; }
+    .row-main .scroll { flex: 1; overflow-y: auto; }
+
+    .panel-head { padding: 11px 16px; }
+    .panel-head h2 { font-size: 13.5px; }
+
+    .line-item {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--line);
+    }
+    .line-item:last-child { border-bottom: none; }
+    .line-item .who { font-weight: 550; font-size: 13.5px; }
+    .line-item .meta { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+    .line-item .val {
+        font-family: var(--mono); font-variant-numeric: tabular-nums;
+        white-space: nowrap; font-weight: 600; font-size: 13px;
+    }
+    .move-time { font-family: var(--mono); font-size: 11px; }
+
+    .log .scroll { max-height: 260px; overflow-y: auto; }
+
+    /* ---------- График ---------- */
+    .chart-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .legend { display: flex; gap: 13px; align-items: center; font-size: 12px; color: var(--ink-2); }
+    .legend b { font-family: var(--mono); font-variant-numeric: tabular-nums;
+                color: var(--ink); margin-left: 4px; font-weight: 600; }
+    .legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+    .period { display: inline-flex; background: var(--surface-alt);
+              border: 1px solid var(--line); border-radius: var(--r); padding: 2px; }
+    .period button {
+        border: none; background: none; cursor: pointer;
+        font: inherit; font-size: 11.5px; color: var(--ink-2);
+        padding: 4px 9px; border-radius: 4px;
+    }
+    .period button:hover { color: var(--ink); }
+    .period button.on { background: var(--surface); color: var(--ink);
+                        font-weight: 600; box-shadow: var(--shadow-sm); }
+
+    .chart-wrap { padding: 12px 14px 6px; position: relative; flex: 1;
+                  display: flex; align-items: center; }
+    .chart-wrap #chart { width: 100%; }
+    .chart-wrap svg { width: 100%; height: auto; display: block; overflow: visible; }
+    .ch-grid  { stroke: var(--line); stroke-width: 1; }
+    .ch-label { font-family: var(--mono); font-size: 8.5px; fill: var(--ink-3); }
+    .ch-line  { fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+    .ch-guide { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+
+    .ch-tip {
+        position: absolute; pointer-events: none; opacity: 0;
+        background: var(--slate-900); color: #fff;
+        border-radius: var(--r); padding: 8px 11px;
+        font-size: 12px; white-space: nowrap;
+        box-shadow: var(--shadow-lg); transition: opacity .12s; z-index: 5;
+    }
+    .ch-tip.show { opacity: 1; }
+    .ch-tip .d { font-family: var(--mono); font-size: 10.5px; opacity: .7; margin-bottom: 4px; }
+    .ch-tip .r { display: flex; align-items: center; gap: 6px; }
+    .ch-tip .r + .r { margin-top: 2px; }
+    .ch-tip .r i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .ch-tip .r b { font-family: var(--mono); font-variant-numeric: tabular-nums; margin-left: auto; }
+
+    @media (max-width: 1020px) {
+        .row-main { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+        .metrics { grid-template-columns: 1fr; }
+        .chart-head { gap: 8px; }
+        .period { margin-left: 0 !important; }
+    }
+{% endblock %}
+
+{% block content %}
+<div id="loading" class="loading">Загрузка данных…</div>
+
+<div id="dashboard" style="display: none;">
+    <div class="metrics">
+        <div class="metric">
+            <div class="label">Позиций продукции</div>
+            <div class="value" id="products-count">—</div>
+        </div>
+        <div class="metric">
+            <div class="label">Позиций сырья</div>
+            <div class="value" id="materials-count">—</div>
+        </div>
+        <div class="metric is-mark" id="low-metric">
+            <div class="label">Требует закупки</div>
+            <div class="value" id="low-stock-count">—</div>
+        </div>
+    </div>
+
+    <div class="row-main">
+        <section class="panel">
+            <div class="panel-head chart-head">
+                <h2><svg class="ic"><use href="#i-chart"></use></svg> Движение по складам</h2>
+                <div class="legend">
+                    <span><i class="dot" style="background: var(--ok)"></i>Приход<b id="sum-in">—</b></span>
+                    <span><i class="dot" style="background: var(--info)"></i>Расход<b id="sum-out">—</b></span>
+                </div>
+                <div class="period" style="margin-left: auto;">
+                    <button onclick="setPeriod(7, this)">7 дн</button>
+                    <button class="on" onclick="setPeriod(14, this)">14 дн</button>
+                    <button onclick="setPeriod(30, this)">30 дн</button>
+                </div>
+            </div>
+            <div class="chart-wrap" id="chartWrap">
+                <div id="chart"><div class="loading">Загрузка…</div></div>
+                <div class="ch-tip" id="chTip"></div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2><svg class="ic"><use href="#i-alert"></use></svg> Ниже минимума</h2>
+            </div>
+            <div class="scroll" id="low-stock-items"><div class="loading">Загрузка…</div></div>
+        </section>
+    </div>
+
+    <section class="panel log">
+        <div class="panel-head">
+            <h2><svg class="ic"><use href="#i-clock"></use></svg> Последние операции</h2>
+        </div>
+        <div class="scroll" id="recent-movements"><div class="loading">Загрузка…</div></div>
+    </section>
+</div>
+
+<script>
+    let chartDays = 14;
+    let chartData = [];
+
+    // ===== Сглаживание кривой =====
+    //
+    // Между точками кривая проводится так, чтобы не «перелетать» за их
+    // значения. Обычное сглаживание при резких перепадах (день с нулём
+    // после дня с сотнями) уводит линию ниже оси, и заливка вылезает за
+    // границу графика. Здесь наклоны ограничиваются по методу
+    // Фрича—Карлсона — кривая остаётся в пределах данных.
+    function monotoneTangents(values) {
+        const n = values.length;
+        if (n < 2) return new Array(n).fill(0);
+        const d = [];
+        for (let i = 0; i < n - 1; i++) d.push(values[i + 1] - values[i]);
+        const m = new Array(n).fill(0);
+        m[0] = d[0];
+        m[n - 1] = d[n - 2];
+        for (let i = 1; i < n - 1; i++) {
+            m[i] = (d[i - 1] * d[i] <= 0) ? 0 : (d[i - 1] + d[i]) / 2;
+        }
+        for (let i = 0; i < n - 1; i++) {
+            if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+            const a = m[i] / d[i], b = m[i + 1] / d[i];
+            const s = a * a + b * b;
+            if (s > 9) {
+                const t = 3 / Math.sqrt(s);
+                m[i] = t * a * d[i];
+                m[i + 1] = t * b * d[i];
+            }
+        }
+        return m;
+    }
+
+    function smoothPath(points) {
+        if (points.length < 2) return '';
+        const m = monotoneTangents(points.map(p => p.y));
+        let path = `M ${points[0].x} ${points[0].y}`;
+        for (let i = 0; i < points.length - 1; i++) {
+            const dx = points[i + 1].x - points[i].x;
+            const c1x = points[i].x + dx / 3;
+            const c1y = points[i].y + m[i] / 3;
+            const c2x = points[i + 1].x - dx / 3;
+            const c2y = points[i + 1].y - m[i + 1] / 3;
+            path += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)},`
+                  + ` ${c2x.toFixed(1)} ${c2y.toFixed(1)},`
+                  + ` ${points[i + 1].x} ${points[i + 1].y.toFixed(1)}`;
+        }
+        return path;
+    }
+
+    function drawChart(days) {
+        chartData = days;
+        const box = document.getElementById('chart');
+        const peak = Math.max(...days.map(d => Math.max(d.in, d.out)), 0);
+
+        // Суммы в легенде
+        const sumIn = days.reduce((s, d) => s + d.in, 0);
+        const sumOut = days.reduce((s, d) => s + d.out, 0);
+        document.getElementById('sum-in').textContent = sumIn.toLocaleString('ru-RU');
+        document.getElementById('sum-out').textContent = sumOut.toLocaleString('ru-RU');
+
+        if (peak === 0) {
+            box.innerHTML = '<div class="empty">'
+                + '<svg class="ic-lg"><use href="#i-chart"></use></svg>'
+                + 'За выбранный период операций не было</div>';
+            return;
+        }
+
+        // Размеры подобраны под колонку в две трети ширины страницы:
+        // пропорция ближе к вытянутой, чтобы график не занимал много
+        // высоты, но перепады оставались различимы.
+        const W = 640, H = 168;
+        const padL = 42, padR = 10, padT = 10, padB = 20;
+        const plotW = W - padL - padR;
+        const plotH = H - padT - padB;
+
+        // Шкала округляется вверх до круглого значения — подписи читаемее
+        const step = Math.pow(10, Math.floor(Math.log10(peak)));
+        const top = Math.ceil(peak / step) * step || 1;
+        const yOf = v => padT + plotH - (v / top) * plotH;
+        const xOf = i => padL + (days.length === 1 ? plotW / 2
+                                 : (plotW * i) / (days.length - 1));
+
+        const ptsIn  = days.map((d, i) => ({ x: xOf(i), y: yOf(d.in) }));
+        const ptsOut = days.map((d, i) => ({ x: xOf(i), y: yOf(d.out) }));
+        const base = padT + plotH;
+
+        const areaOf = pts => smoothPath(pts)
+            + ` L ${pts[pts.length - 1].x} ${base} L ${pts[0].x} ${base} Z`;
+
+        let svg = `<svg viewBox="0 0 ${W} ${H}" role="img"
+                        aria-label="График движения товаров по складам">`;
+
+        // Заливка под линиями — мягкий переход к прозрачности
+        svg += `<defs>
+            <linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--ok)" stop-opacity=".26"/>
+                <stop offset="100%" stop-color="var(--ok)" stop-opacity="0"/>
+            </linearGradient>
+            <linearGradient id="gOut" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--info)" stop-opacity=".22"/>
+                <stop offset="100%" stop-color="var(--info)" stop-opacity="0"/>
+            </linearGradient>
+        </defs>`;
+
+        // Сетка и подписи значений
+        for (let i = 0; i <= 3; i++) {
+            const value = top * i / 3;
+            const y = yOf(value);
+            svg += `<line class="ch-grid" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"/>`;
+            svg += `<text class="ch-label" x="${padL - 7}" y="${y + 3}" text-anchor="end">`
+                 + `${value.toLocaleString('ru-RU')}</text>`;
+        }
+
+        // Заливки, затем линии поверх
+        svg += `<path d="${areaOf(ptsOut)}" fill="url(#gOut)"/>`;
+        svg += `<path d="${areaOf(ptsIn)}" fill="url(#gIn)"/>`;
+        svg += `<path class="ch-line" d="${smoothPath(ptsOut)}" stroke="var(--info)"/>`;
+        svg += `<path class="ch-line" d="${smoothPath(ptsIn)}" stroke="var(--ok)"/>`;
+
+        // Подписи дат: показываем столько, сколько поместится
+        const every = Math.max(1, Math.ceil(days.length / 6));
+        days.forEach((d, i) => {
+            if (i % every === 0 || i === days.length - 1) {
+                svg += `<text class="ch-label" x="${xOf(i)}" y="${H - 6}"`
+                     + ` text-anchor="middle">${d.date}</text>`;
+            }
+        });
+
+        // Направляющая и точки — показываются при наведении
+        svg += `<line class="ch-guide" id="chGuide" x1="0" y1="${padT}" x2="0"
+                      y2="${base}" style="opacity:0"/>`;
+        svg += `<circle id="chDotIn" r="3.5" fill="var(--ok)" stroke="#fff"
+                        stroke-width="1.75" style="opacity:0"/>`;
+        svg += `<circle id="chDotOut" r="3.5" fill="var(--info)" stroke="#fff"
+                        stroke-width="1.75" style="opacity:0"/>`;
+        svg += `<rect id="chCatcher" x="${padL}" y="${padT}" width="${plotW}"
+                      height="${plotH}" fill="transparent"/>`;
+        svg += '</svg>';
+        box.innerHTML = svg;
+
+        setupHover({ W, padL, plotW, xOf, ptsIn, ptsOut });
+    }
+
+    // Наведение: вертикальная направляющая, точки и подсказка со значениями
+    function setupHover(g) {
+        const svgEl = document.querySelector('#chart svg');
+        const catcher = document.getElementById('chCatcher');
+        const guide = document.getElementById('chGuide');
+        const dotIn = document.getElementById('chDotIn');
+        const dotOut = document.getElementById('chDotOut');
+        const tip = document.getElementById('chTip');
+        const wrap = document.getElementById('chartWrap');
+        if (!catcher) return;
+
+        function hide() {
+            [guide, dotIn, dotOut].forEach(el => el.style.opacity = 0);
+            tip.classList.remove('show');
+        }
+
+        catcher.addEventListener('mousemove', event => {
+            const box = svgEl.getBoundingClientRect();
+            // Переводим положение курсора в координаты рисунка
+            const xInSvg = (event.clientX - box.left) / box.width * g.W;
+            const ratio = (xInSvg - g.padL) / g.plotW;
+            let idx = Math.round(ratio * (chartData.length - 1));
+            idx = Math.max(0, Math.min(chartData.length - 1, idx));
+
+            const d = chartData[idx];
+            const x = g.xOf(idx);
+            guide.setAttribute('x1', x); guide.setAttribute('x2', x);
+            guide.style.opacity = 1;
+            dotIn.setAttribute('cx', x);  dotIn.setAttribute('cy', g.ptsIn[idx].y);
+            dotOut.setAttribute('cx', x); dotOut.setAttribute('cy', g.ptsOut[idx].y);
+            dotIn.style.opacity = 1; dotOut.style.opacity = 1;
+
+            tip.innerHTML =
+                `<div class="d">${esc(d.full_date || d.date)}</div>` +
+                `<div class="r"><i style="background:var(--ok)"></i>Приход` +
+                `<b>${d.in.toLocaleString('ru-RU')}</b></div>` +
+                `<div class="r"><i style="background:var(--info)"></i>Расход` +
+                `<b>${d.out.toLocaleString('ru-RU')}</b></div>`;
+            tip.classList.add('show');
+
+            // Держим подсказку в пределах панели
+            const left = x / g.W * box.width;
+            const shift = Math.min(Math.max(left - 60, 4),
+                                   wrap.clientWidth - tip.offsetWidth - 4);
+            tip.style.left = shift + 'px';
+            tip.style.top = '18px';
+        });
+        catcher.addEventListener('mouseleave', hide);
+    }
+
+    function setPeriod(days, btn) {
+        chartDays = days;
+        document.querySelectorAll('.period button').forEach(b => b.classList.remove('on'));
+        btn.classList.add('on');
+        loadDashboard();
+    }
+
+    async function loadDashboard() {
+        try {
+            const data = await apiCall(`/dashboard/?days=${chartDays}`);
+
+            document.getElementById('products-count').textContent = data.products_positions;
+            document.getElementById('materials-count').textContent = data.materials_positions;
+            document.getElementById('low-stock-count').textContent = data.low_stock_count;
+            document.getElementById('low-metric').className =
+                'metric ' + (data.low_stock_count > 0 ? 'is-mark' : 'is-ok');
+
+            drawChart(data.chart || []);
+
+            const low = data.low_stock_items.map(item => `
+                <div class="line-item">
+                    <div>
+                        <div class="who">${esc(item.name)}</div>
+                        <div class="meta">минимум ${item.reorder_point} ${esc(item.unit)}</div>
+                    </div>
+                    <div class="val" style="color: var(--stop);">${item.current} ${esc(item.unit)}</div>
+                </div>`).join('');
+            document.getElementById('low-stock-items').innerHTML =
+                low || '<div class="empty">Все материалы в норме. Закупка не требуется.</div>';
+
+            const moves = data.recent_movements.map(mv => `
+                <div class="line-item">
+                    <div>
+                        <div class="who">${esc(mv.item_name)}</div>
+                        <div class="meta">
+                            <span class="move-time">${esc(mv.created_display)}</span>
+                            · ${esc(mv.movement_type_display)}${mv.user_name ? ' · ' + esc(mv.user_name) : ''}
+                        </div>
+                    </div>
+                    <div class="val" style="color: ${mv.movement_type === 'out' ? 'var(--stop)' : 'var(--ok)'};">
+                        ${mv.movement_type === 'out' ? '−' : '+'}${mv.quantity}
+                    </div>
+                </div>`).join('');
+            document.getElementById('recent-movements').innerHTML =
+                moves || '<div class="empty">Операций пока не было.</div>';
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+        } catch (error) {
+            document.getElementById('loading').innerHTML =
+                `<div class="note note-stop">
+                    <svg class="ic"><use href="#i-alert"></use></svg>
+                    <span>Не удалось загрузить сводку: ${esc(error.message)}</span>
+                 </div>`;
+        }
+    }
+
+    loadDashboard();
+    setInterval(loadDashboard, 60000);
+</script>
+{% endblock %}

@@ -1,0 +1,23 @@
+# Основные зависимости проекта.
+# Django 4.2.27+ — в этих версиях исправлена совместимость с Python 3.13/3.14.
+Django>=4.2.27,<4.3
+djangorestframework==3.14.0
+django-cors-headers==4.0.0
+
+# Драйвер PostgreSQL. Используется psycopg 3 (не psycopg2):
+# он ставится готовым бинарником и не требует компиляции под Windows.
+psycopg[binary]>=3.1
+
+python-dotenv==1.0.0
+django-filter==23.2
+
+# Экспорт отчётов
+openpyxl==3.1.2
+reportlab==4.0.4
+
+# Обработка изображений — обязательна для ImageField (фото товаров)
+Pillow>=10.0
+
+# WSGI-сервер для боевого режима. Именно его запускает Dockerfile и
+# docker-compose — без него контейнер не стартует.
+gunicorn>=21.2

@@ -1,0 +1,276 @@
+{% extends 'base.html' %}
+{% block title %}Справочники | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-book"></use></svg> Справочники{% endblock %}
+
+{% block extra_css %}
+<style>
+    .tabs {
+        display: flex; align-items: center; gap: 4px;
+        margin-bottom: 18px;
+        border-bottom: 1px solid var(--line-strong);
+    }
+    /* Кнопка действия прижата к правому краю строки вкладок и слегка
+       приподнята, чтобы не касаться разделительной линии */
+    .tabs #addBtn { margin-left: auto; margin-bottom: 7px; }
+    .tab {
+        display: inline-flex; align-items: center; gap: 7px;
+        padding: 9px 14px; cursor: pointer;
+        border: none; background: none;
+        font: inherit; font-size: 13.5px; color: var(--ink-2);
+        border-bottom: 2px solid transparent; margin-bottom: -1px;
+    }
+    .tab:hover { color: var(--ink); }
+    .tab .ic { color: var(--ink-3); }
+    .tab.active .ic { color: var(--mark); }
+    .tab.active { color: var(--ink); font-weight: 600;
+                  border-bottom-color: var(--mark); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    table th { background: var(--surface-alt); padding: 12px; text-align: left; font-weight: 600; border-bottom: 2px solid var(--line-strong); }
+    table td { padding: 12px; border-bottom: 1px solid var(--line); }
+    table tr:hover { background: var(--surface-alt); }
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 500px;
+        width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+    .modal-content h2 { margin-bottom: 20px; color: var(--slate-800); }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+    .form-group input, .form-group select {
+        width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; font-family: inherit; }
+    .form-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .form-actions button { flex: 1; padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: var(--slate-800); color: white; }
+    .btn-secondary { background: var(--line-strong); color: var(--ink); }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 3px; font-size: 12px; background: var(--info-soft); color: var(--info); }
+    .loading { text-align: center; padding: 40px; color: var(--ink-3); }
+    .empty { text-align: center; padding: 40px; color: var(--ink-3); }
+    .alert { padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid; }
+    .alert-success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+    .alert-error { background: var(--stop-soft); color: var(--stop); border-color: var(--stop); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="tabs">
+    <button class="tab active" onclick="switchTab('suppliers', this)">
+        <svg class="ic"><use href="#i-factory"></use></svg>Поставщики</button>
+    <button class="tab" onclick="switchTab('warehouses', this)">
+        <svg class="ic"><use href="#i-box"></use></svg>Склады</button>
+
+    <!-- Действие стоит в той же строке, что и вкладки: добавляют всегда
+         в тот раздел, который открыт, поэтому разносить их незачем -->
+    <button class="btn btn-primary btn-sm" id="addBtn" onclick="openModal()">
+        <svg class="ic-sm"><use href="#i-plus"></use></svg><span id="addLabel">Поставщик</span></button>
+</div>
+
+<div id="area"><div class="loading">Загрузка...</div></div>
+
+<!-- Модальное окно поставщика -->
+<div class="modal" id="supplierModal">
+    <div class="modal-content">
+        <h2 id="supplierTitle">Добавить поставщика</h2>
+        <form id="supplierForm">
+            <div class="form-group"><label>Наименование *</label><input type="text" id="s_name" required></div>
+            <div class="form-group"><label>ИНН</label><input type="text" id="s_inn"></div>
+            <div class="form-group"><label>Контактное лицо</label><input type="text" id="s_contact"></div>
+            <div class="form-group"><label>Телефон</label><input type="text" id="s_phone"></div>
+            <div class="form-group"><label>E-mail</label><input type="email" id="s_email"></div>
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="closeModals()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно склада -->
+<div class="modal" id="warehouseModal">
+    <div class="modal-content">
+        <h2 id="warehouseTitle">Добавить склад</h2>
+        <form id="warehouseForm">
+            <div class="form-group"><label>Наименование *</label><input type="text" id="w_name" required></div>
+            <div class="form-group"><label>Тип *</label>
+                <select id="w_type" required>
+                    <option value="">Выберите</option>
+                    <option value="raw">Склад сырья</option>
+                    <option value="finished">Склад готовой продукции</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Расположение</label><input type="text" id="w_location"></div>
+            <div class="form-group"><label>Вместимость</label><input type="number" id="w_capacity" min="0"></div>
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="closeModals()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    let currentTab = 'suppliers';
+    let editId = null;
+    const whTypeNames = {'raw': 'Склад сырья', 'finished': 'Склад готовой продукции'};
+
+    function switchTab(tab, el) {
+        currentTab = tab;
+        editId = null;
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+        // Подпись кнопки говорит, что именно добавится — иначе на странице
+        // с двумя разделами приходится догадываться
+        document.getElementById('addLabel').textContent =
+            tab === 'suppliers' ? 'Поставщик' : 'Склад';
+        loadData();
+    }
+
+    async function loadData() {
+        const area = document.getElementById('area');
+        area.innerHTML = '<div class="loading">Загрузка...</div>';
+        try {
+            if (currentTab === 'suppliers') await loadSuppliers(area);
+            else await loadWarehouses(area);
+        } catch (error) {
+            area.innerHTML = `<div class="alert alert-error">Ошибка: ${esc(error.message)}</div>`;
+        }
+    }
+
+    async function loadSuppliers(area) {
+        const list = await apiCallAll('/suppliers/');
+        if (list.length === 0) { area.innerHTML = '<div class="empty">Поставщиков пока нет. Добавьте первого!</div>'; return; }
+        area.innerHTML = `<table><thead><tr>
+            <th>Наименование</th><th>ИНН</th><th>Контакт</th><th>Телефон</th><th>E-mail</th><th>Действия</th>
+        </tr></thead><tbody>
+            ${list.map(s => `<tr>
+                <td><strong>${esc(s.name)}</strong></td>
+                <td>${esc(s.inn || '—')}</td>
+                <td>${esc(s.contact_person || '—')}</td>
+                <td>${esc(s.phone || '—')}</td>
+                <td>${esc(s.email || '—')}</td>
+                <td><div class="row-actions">
+                    <button class="act act-edit" title="Редактировать" onclick='editSupplier(${JSON.stringify(s)})'><svg class="ic"><use href="#i-edit"></use></svg></button>
+                    <button class="act act-del" title="Удалить" onclick="deleteItem('suppliers', ${s.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>
+                </div></td>
+            </tr>`).join('')}
+        </tbody></table>`;
+    }
+
+    async function loadWarehouses(area) {
+        const list = await apiCallAll('/warehouses/');
+        if (list.length === 0) { area.innerHTML = '<div class="empty">Складов пока нет. Добавьте первый!</div>'; return; }
+        area.innerHTML = `<table><thead><tr>
+            <th>Наименование</th><th>Тип</th><th>Расположение</th><th>Вместимость</th><th>Действия</th>
+        </tr></thead><tbody>
+            ${list.map(w => `<tr>
+                <td><strong>${esc(w.name)}</strong></td>
+                <td><span class="badge">${whTypeNames[w.type] || w.type}</span></td>
+                <td>${esc(w.location || '—')}</td>
+                <td>${w.capacity || '—'}</td>
+                <td><div class="row-actions">
+                    <button class="act act-edit" title="Редактировать" onclick='editWarehouse(${JSON.stringify(w)})'><svg class="ic"><use href="#i-edit"></use></svg></button>
+                    <button class="act act-del" title="Удалить" onclick="deleteItem('warehouses', ${w.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>
+                </div></td>
+            </tr>`).join('')}
+        </tbody></table>`;
+    }
+
+    function openModal() {
+        editId = null;
+        if (currentTab === 'suppliers') {
+            document.getElementById('supplierTitle').textContent = 'Добавить поставщика';
+            document.getElementById('supplierForm').reset();
+            document.getElementById('supplierModal').classList.add('active');
+        } else {
+            document.getElementById('warehouseTitle').textContent = 'Добавить склад';
+            document.getElementById('warehouseForm').reset();
+            document.getElementById('warehouseModal').classList.add('active');
+        }
+    }
+
+    function editSupplier(s) {
+        editId = s.id;
+        document.getElementById('supplierTitle').textContent = 'Редактировать поставщика';
+        document.getElementById('s_name').value = s.name;
+        document.getElementById('s_inn').value = s.inn || '';
+        document.getElementById('s_contact').value = s.contact_person || '';
+        document.getElementById('s_phone').value = s.phone || '';
+        document.getElementById('s_email').value = s.email || '';
+        document.getElementById('supplierModal').classList.add('active');
+    }
+
+    function editWarehouse(w) {
+        editId = w.id;
+        document.getElementById('warehouseTitle').textContent = 'Редактировать склад';
+        document.getElementById('w_name').value = w.name;
+        document.getElementById('w_type').value = w.type;
+        document.getElementById('w_location').value = w.location || '';
+        document.getElementById('w_capacity').value = w.capacity || '';
+        document.getElementById('warehouseModal').classList.add('active');
+    }
+
+    function closeModals() {
+        document.getElementById('supplierModal').classList.remove('active');
+        document.getElementById('warehouseModal').classList.remove('active');
+    }
+
+    async function saveSupplier(e) {
+        e.preventDefault();
+        const data = {
+            name: document.getElementById('s_name').value,
+            inn: document.getElementById('s_inn').value,
+            contact_person: document.getElementById('s_contact').value,
+            phone: document.getElementById('s_phone').value,
+            email: document.getElementById('s_email').value
+        };
+        try {
+            if (editId) await apiCall(`/suppliers/${editId}/`, 'PUT', data);
+            else await apiCall('/suppliers/', 'POST', data);
+            showMessage('Поставщик сохранён', 'success');
+            closeModals();
+            loadData();
+        } catch (error) { showMessage('Ошибка: ' + error.message, 'error'); }
+    }
+
+    async function saveWarehouse(e) {
+        e.preventDefault();
+        const cap = document.getElementById('w_capacity').value;
+        const data = {
+            name: document.getElementById('w_name').value,
+            type: document.getElementById('w_type').value,
+            location: document.getElementById('w_location').value,
+            capacity: cap ? parseInt(cap) : null
+        };
+        try {
+            if (editId) await apiCall(`/warehouses/${editId}/`, 'PUT', data);
+            else await apiCall('/warehouses/', 'POST', data);
+            showMessage('Склад сохранён', 'success');
+            closeModals();
+            loadData();
+        } catch (error) { showMessage('Ошибка: ' + error.message, 'error'); }
+    }
+
+    async function deleteItem(type, id) {
+        if (!confirm('Удалить запись?')) return;
+        try {
+            await apiCall(`/${type}/${id}/`, 'DELETE');
+            showMessage('Удалено', 'success');
+            loadData();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message + ' (возможно, запись используется в документах)', 'error');
+        }
+    }
+
+    function showMessage(text, type) {
+        const msg = document.getElementById('message');
+        const cls = type === 'error' ? 'alert-error' : 'alert-success';
+        msg.innerHTML = `<div class="alert ${cls}">${text}</div>`;
+        setTimeout(() => { msg.innerHTML = ''; }, 5000);
+    }
+
+    document.getElementById('supplierForm').addEventListener('submit', saveSupplier);
+    document.getElementById('warehouseForm').addEventListener('submit', saveWarehouse);
+    loadData();
+</script>
+{% endblock %}

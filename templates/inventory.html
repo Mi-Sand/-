@@ -1,0 +1,236 @@
+{% extends 'base.html' %}
+{% block title %}Инвентаризация | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-clipboard"></use></svg> Инвентаризация{% endblock %}
+
+{% block extra_css %}
+<style>
+    .inv-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-top: 20px; }
+    .inv-card { background: white; border: 1px solid var(--line-strong); border-radius: 8px; padding: 18px; }
+    .inv-card:hover { border-color: var(--slate-800); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .inv-number { font-size: 17px; font-weight: 600; color: var(--slate-800); margin-bottom: 8px; }
+    .inv-status { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; margin-bottom: 10px; }
+    .st-draft { background: #e0e0e0; color: var(--ink-2); }
+    .st-in_progress { background: var(--warn-soft); color: var(--warn); }
+    .st-completed { background: var(--ok-soft); color: var(--ok); }
+    .inv-info { font-size: 13px; color: var(--ink-2); margin-bottom: 12px; }
+    .inv-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn-sm { padding: 7px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500; }
+    .btn-blue { background: var(--info); color: white; }
+    .btn-green { background: var(--ok); color: white; }
+    .btn-red { background: var(--stop); color: white; }
+    .loading { text-align: center; padding: 40px; color: var(--ink-3); }
+    .empty { text-align: center; padding: 40px; color: var(--ink-3); }
+    .alert { padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid; }
+    .alert-success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+    .alert-error { background: var(--stop-soft); color: var(--stop); border-color: var(--stop); }
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 700px;
+        width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+    .modal-content h2 { margin-bottom: 20px; color: var(--slate-800); }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+    .form-group input, .form-group select {
+        width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; }
+    .form-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .form-actions button { flex: 1; padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: var(--slate-800); color: white; }
+    .btn-secondary { background: var(--line-strong); color: var(--ink); }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    table th { background: var(--surface-alt); padding: 10px; text-align: left; font-size: 13px; border-bottom: 2px solid var(--line-strong); }
+    table td { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    table input { width: 100px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 4px; }
+    .diff-neg { color: var(--stop); font-weight: 600; }
+    .diff-pos { color: var(--ok); font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="message"></div>
+
+<div class="toolbar">
+    <button class="btn btn-ghost" onclick="loadInventories()" style="margin-left:auto;"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
+    <button class="btn btn-primary" onclick="openCreateModal()">+ Новая инвентаризация</button>
+</div>
+
+<div id="loading" class="loading">Загрузка...</div>
+<div id="content" style="display:none;"><div class="inv-list" id="invList"></div></div>
+
+<!-- Создание -->
+<div class="modal" id="createModal">
+    <div class="modal-content" style="max-width:450px;">
+        <h2><svg class="ic"><use href="#i-clipboard"></use></svg> Новая инвентаризация</h2>
+        <form id="createForm">
+            <div class="form-group">
+                <label>Номер *</label>
+                <input type="text" id="number" placeholder="ИНВ-001" required>
+            </div>
+            <div class="form-group">
+                <label>Склад *</label>
+                <select id="warehouse" required><option value="">Загрузка...</option></select>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Создать</button>
+                <button type="button" class="btn-secondary" onclick="closeCreateModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Ввод фактических остатков -->
+<div class="modal" id="countModal">
+    <div class="modal-content">
+        <h2 id="countTitle">Ввод фактических остатков</h2>
+        <p style="color:var(--ink-2); margin-bottom:15px; font-size:14px;">
+            Впишите фактически пересчитанное количество. Расхождение считается автоматически.</p>
+        <div id="countBody"></div>
+        <div class="form-actions">
+            <button class="btn-primary" onclick="saveCounts()"><svg class="ic"><use href="#i-save"></use></svg> Сохранить факт</button>
+            <button class="btn-secondary" onclick="closeCountModal()">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const statusNames = {'draft': 'Черновик', 'in_progress': 'В процессе', 'completed': 'Завершена'};
+    let currentInvId = null;
+
+    async function loadInventories() {
+        try {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('content').style.display = 'none';
+            const list = await apiCallAll('/inventories/');
+            const html = list.map(inv => `
+                <div class="inv-card">
+                    <div class="inv-number">${esc(inv.number)}</div>
+                    <span class="inv-status st-${inv.status}">${inv.status_display || statusNames[inv.status]}</span>
+                    <div class="inv-info"><svg class="ic"><use href="#i-box"></use></svg> ${esc(inv.warehouse_name)}<br><svg class="ic"><use href="#i-calendar"></use></svg> ${new Date(inv.created_at).toLocaleDateString('ru-RU')}</div>
+                    <div class="inv-actions">
+                        ${inv.status === 'draft' ? `<button class="btn-sm btn-blue" onclick="buildSheet(${inv.id})"><svg class="ic"><use href="#i-edit"></use></svg> Заполнить опись</button>` : ''}
+                        ${inv.status === 'in_progress' ? `<button class="btn-sm btn-blue" onclick="openCounts(${inv.id})"><svg class="ic"><use href="#i-edit"></use></svg> Внести факт</button>` : ''}
+                        ${inv.status === 'in_progress' ? `<button class="btn-sm btn-green" onclick="finalize(${inv.id})"><svg class="ic"><use href="#i-check"></use></svg> Завершить</button>` : ''}
+                        ${inv.status === 'completed' ? `<button class="btn-sm btn-blue" onclick="openCounts(${inv.id})"><svg class="ic"><use href="#i-eye"></use></svg> Результаты</button>` : ''}
+                        ${inv.status !== 'completed' ? `<button class="btn-sm btn-red" onclick="deleteInv(${inv.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>` : ''}
+                    </div>
+                </div>`).join('');
+            document.getElementById('invList').innerHTML = html || '<div class="empty">Инвентаризаций пока нет. Создайте первую!</div>';
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+        } catch (error) {
+            document.getElementById('loading').innerHTML = '';
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    async function openCreateModal() {
+        try {
+            const wh = await apiCallAll('/warehouses/');
+            document.getElementById('warehouse').innerHTML =
+                '<option value="">Выберите склад...</option>' +
+                wh.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
+            document.getElementById('createForm').reset();
+            document.getElementById('createModal').classList.add('active');
+        } catch (error) { showMessage('' + error.message, 'error'); }
+    }
+    function closeCreateModal() { document.getElementById('createModal').classList.remove('active'); }
+
+    async function createInventory(e) {
+        e.preventDefault();
+        const data = {
+            number: document.getElementById('number').value,
+            warehouse: parseInt(document.getElementById('warehouse').value)
+        };
+        try {
+            await apiCall('/inventories/', 'POST', data);
+            showMessage('Инвентаризация создана. Нажмите «Заполнить опись».', 'success');
+            closeCreateModal();
+            loadInventories();
+        } catch (error) { showMessage('Ошибка: ' + error.message, 'error'); }
+    }
+
+    async function buildSheet(id) {
+        if (!confirm('Заполнить опись текущими остатками склада?')) return;
+        try {
+            await apiCall(`/inventories/${id}/build_sheet/`, 'POST', {});
+            showMessage('Опись заполнена. Теперь внесите фактические остатки.', 'success');
+            loadInventories();
+        } catch (error) { showMessage('' + error.message, 'error'); }
+    }
+
+    async function openCounts(id) {
+        currentInvId = id;
+        try {
+            const inv = await apiCall(`/inventories/${id}/`);
+            const items = inv.items || [];
+            const readOnly = inv.status === 'completed';
+            document.getElementById('countTitle').textContent =
+                (readOnly ? 'Результаты: ' : 'Ввод фактических остатков: ') + inv.number;
+            document.getElementById('countBody').innerHTML = `
+                <table><thead><tr>
+                    <th>Товар</th><th>Учётное</th><th>Фактическое</th>${readOnly ? '<th>Расхождение</th>' : ''}
+                </tr></thead><tbody>
+                    ${items.map(it => `<tr>
+                        <td>${esc(it.item_name)}</td>
+                        <td>${it.system_quantity}</td>
+                        <td>${readOnly
+                            ? it.actual_quantity
+                            : `<input type="number" step="0.01" data-item="${it.id}" value="${it.actual_quantity ?? it.system_quantity}">`}</td>
+                        ${readOnly ? `<td class="${parseFloat(it.difference) < 0 ? 'diff-neg' : parseFloat(it.difference) > 0 ? 'diff-pos' : ''}">${it.difference}</td>` : ''}
+                    </tr>`).join('')}
+                </tbody></table>`;
+            // Спрятать кнопку сохранения, если только просмотр
+            document.querySelector('#countModal .btn-primary').style.display = readOnly ? 'none' : 'block';
+            document.getElementById('countModal').classList.add('active');
+        } catch (error) { showMessage('' + error.message, 'error'); }
+    }
+    function closeCountModal() { document.getElementById('countModal').classList.remove('active'); }
+
+    async function saveCounts() {
+        const inputs = document.querySelectorAll('#countBody input[data-item]');
+        const counts = Array.from(inputs).map(inp => ({
+            item_id: parseInt(inp.dataset.item),
+            actual_quantity: parseFloat(inp.value) || 0
+        }));
+        try {
+            await apiCall(`/inventories/${currentInvId}/save_counts/`, 'POST', { counts });
+            showMessage('Фактические остатки сохранены. Можно «Завершить».', 'success');
+            closeCountModal();
+            loadInventories();
+        } catch (error) { showMessage('' + error.message, 'error'); }
+    }
+
+    async function finalize(id) {
+        if (!confirm('Завершить инвентаризацию? Остатки будут скорректированы по факту.')) return;
+        try {
+            const res = await apiCall(`/inventories/${id}/finalize/`, 'POST', {});
+            const d = res.discrepancies || [];
+            if (d.length === 0) {
+                showMessage('Инвентаризация завершена. Расхождений не выявлено.', 'success');
+            } else {
+                showMessage(`Завершено. Выявлено расхождений: ${d.length}. Остатки скорректированы.`, 'success');
+            }
+            loadInventories();
+        } catch (error) { showMessage('' + error.message, 'error'); }
+    }
+
+    async function deleteInv(id) {
+        if (!confirm('Удалить инвентаризацию?')) return;
+        try {
+            await apiCall(`/inventories/${id}/`, 'DELETE');
+            showMessage('Удалено', 'success');
+            loadInventories();
+        } catch (error) { showMessage('' + error.message, 'error'); }
+    }
+
+    function showMessage(text, type) {
+        const msg = document.getElementById('message');
+        const cls = type === 'error' ? 'alert-error' : 'alert-success';
+        msg.innerHTML = `<div class="alert ${cls}">${text}</div>`;
+        setTimeout(() => { msg.innerHTML = ''; }, 5000);
+    }
+
+    document.getElementById('createForm').addEventListener('submit', createInventory);
+    loadInventories();
+</script>
+{% endblock %}
