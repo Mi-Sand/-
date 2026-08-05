@@ -36,26 +36,6 @@ from rest_framework import status
 from .models import ChatMessage
 from .serializers import ChatMessageSerializer
 
-# Отличаем «параметр не задан» от «задан, но испорчен»: для первого случая
-# подходит None, для второго нужен отдельный признак.
-_INVALID = object()
-
-
-def _as_id(value):
-    """Привести параметр запроса к целому id.
-
-    Возвращает None, если параметр не задан, и _INVALID, если задан
-    чем-то, что идентификатором быть не может. Без этой проверки строка
-    вроде ?with=abc уходит прямо в запрос к базе и роняет обработчик.
-    """
-    if value in (None, '', 'null'):
-        return None
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return _INVALID
-    return number if number > 0 else _INVALID
-
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -74,28 +54,17 @@ def chat_messages(request):
         if not text:
             return Response({'error': 'Пустое сообщение'},
                             status=status.HTTP_400_BAD_REQUEST)
-        recipient_id = _as_id(request.data.get('recipient'))
-        if recipient_id is _INVALID:
-            return Response({'error': 'Неверный получатель'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        # Получателя проверяем по базе: иначе сообщение сохранится со
-        # ссылкой на несуществующего сотрудника, и запрос закончится
-        # ошибкой сервера на PostgreSQL с его немедленной проверкой связей.
-        if recipient_id is not None and not User.objects.filter(
-                pk=recipient_id, is_active=True).exists():
-            return Response({'error': 'Получатель не найден'},
-                            status=status.HTTP_400_BAD_REQUEST)
+        recipient_id = request.data.get('recipient')
         msg = ChatMessage.objects.create(
-            sender=me, recipient_id=recipient_id, text=text)
+            sender=me,
+            recipient_id=recipient_id if recipient_id else None,
+            text=text)
         return Response(ChatMessageSerializer(msg).data,
                         status=status.HTTP_201_CREATED)
 
     # GET
-    with_user = _as_id(request.query_params.get('with'))
-    after = _as_id(request.query_params.get('after'))
-    if with_user is _INVALID or after is _INVALID:
-        return Response({'error': 'Неверный параметр запроса'},
-                        status=status.HTTP_400_BAD_REQUEST)
+    with_user = request.query_params.get('with')
+    after = request.query_params.get('after')
 
     if with_user:
         # Личная переписка между me и with_user (в обе стороны)
@@ -220,15 +189,9 @@ def chat_mark_read(request):
     или пустое тело для общего чата.
     """
     me = request.user
-    peer_id = _as_id(request.data.get('with'))
-    if peer_id is _INVALID:
-        return Response({'error': 'Неверный собеседник'},
-                        status=status.HTTP_400_BAD_REQUEST)
+    peer_id = request.data.get('with') or None
 
     if peer_id:
-        if not User.objects.filter(pk=peer_id).exists():
-            return Response({'error': 'Собеседник не найден'},
-                            status=status.HTTP_400_BAD_REQUEST)
         newest = (ChatMessage.objects
                   .filter(sender_id=peer_id, recipient=me)
                   .order_by('-id').first())

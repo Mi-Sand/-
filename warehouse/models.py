@@ -191,7 +191,7 @@ class InboundItem(models.Model):
         constraints = [
             # Строка ссылается либо на материал, либо на продукцию, но не оба
             models.CheckConstraint(
-                condition=(
+                check=(
                     models.Q(material__isnull=False, product__isnull=True) |
                     models.Q(material__isnull=True, product__isnull=False)
                 ),
@@ -267,7 +267,7 @@ class OutboundItem(models.Model):
         verbose_name_plural = 'Строки расхода'
         constraints = [
             models.CheckConstraint(
-                condition=(
+                check=(
                     models.Q(material__isnull=False, product__isnull=True) |
                     models.Q(material__isnull=True, product__isnull=False)
                 ),
@@ -306,29 +306,9 @@ class Stock(models.Model):
         verbose_name = 'Остаток на складе'
         verbose_name_plural = 'Остатки на складах'
         constraints = [
-            # В SQL значение NULL не равно другому NULL, поэтому обычное
-            # ограничение по трём полям здесь не работает: у любой строки
-            # один из столбцов пуст (остаток либо по материалу, либо по
-            # продукции), и база считает такие строки различными. Нужны два
-            # частичных ограничения — отдельно для материалов и продукции.
-            # Без этого на складе появляются две строки одной позиции, а
-            # проведение расхода падает с MultipleObjectsReturned.
             models.UniqueConstraint(
-                fields=['warehouse', 'material'],
-                condition=models.Q(product__isnull=True),
-                name='uniq_stock_material'),
-            models.UniqueConstraint(
-                fields=['warehouse', 'product'],
-                condition=models.Q(material__isnull=True),
-                name='uniq_stock_product'),
-            # Остаток относится либо к материалу, либо к продукции —
-            # как и строки документов выше.
-            models.CheckConstraint(
-                condition=(
-                    models.Q(material__isnull=False, product__isnull=True) |
-                    models.Q(material__isnull=True, product__isnull=False)
-                ),
-                name='stock_material_xor_product'),
+                fields=['warehouse', 'material', 'product'],
+                name='uniq_stock_position'),
         ]
 
     def __str__(self):
@@ -441,13 +421,6 @@ class Order(models.Model):
     outbound_document = models.ForeignKey(
         'OutboundDocument', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='orders', verbose_name='Расходный документ')
-    # Реквизиты покупателя, если заказ оформила организация. С витрины
-    # заказы приходят от частных лиц и это поле пустое; счёт им выписать
-    # можно и так, а накладную или УПД организации — уже нет.
-    counterparty = models.ForeignKey(
-        'billing.Counterparty', on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='orders',
-        verbose_name='Покупатель-организация')
 
     class Meta:
         db_table = 'orders'

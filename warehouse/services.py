@@ -17,24 +17,6 @@ class InsufficientStockError(Exception):
     """Возбуждается при попытке списать больше товара, чем есть на складе."""
 
 
-def _to_quantity(value, what):
-    """Привести количество из запроса к Decimal.
-
-    Decimal('abc') возбуждает InvalidOperation — это наследник
-    ArithmeticError, а не ValueError, поэтому обычный `except ValueError`
-    в обработчиках его не ловит и запрос заканчивается ошибкой сервера.
-    Здесь любое нечисловое значение превращается в понятное сообщение.
-    """
-    from decimal import Decimal
-    try:
-        result = Decimal(str(value))
-    except (ArithmeticError, TypeError, ValueError):
-        raise ValueError(f'Неверное {what}: {value!r}')
-    if not result.is_finite():
-        raise ValueError(f'Неверное {what}: {value!r}')
-    return result
-
-
 @transaction.atomic
 def process_inbound_document(doc_id, user=None):
     """Провести приходный документ: увеличить остатки и записать движение.
@@ -152,35 +134,19 @@ def produce_product(product_id, quantity, product_warehouse_id,
     from decimal import Decimal
     from .models import Material, Product
 
-    quantity = _to_quantity(quantity, 'количество продукции')
+    quantity = Decimal(str(quantity))
     if quantity <= 0:
         raise ValueError('Количество продукции должно быть больше нуля')
 
-    try:
-        product = Product.objects.get(pk=product_id)
-    except (Product.DoesNotExist, TypeError, ValueError):
-        raise ValueError(f'Продукция с id={product_id!r} не найдена')
-
-    from .models import Warehouse
-    for wh_id, label in ((material_warehouse_id, 'склад материалов'),
-                         (product_warehouse_id, 'склад продукции')):
-        try:
-            Warehouse.objects.get(pk=wh_id)
-        except (Warehouse.DoesNotExist, TypeError, ValueError):
-            raise ValueError(f'Указан несуществующий {label}')
+    product = Product.objects.get(pk=product_id)
 
     # 1. Списываем материалы (с проверкой достаточности)
     for row in materials:
-        if not isinstance(row, dict) or 'material' not in row:
-            raise ValueError('Строка материалов передана в неверном формате')
         mat_id = row['material']
-        mat_qty = _to_quantity(row.get('quantity', 0), 'количество материала')
+        mat_qty = Decimal(str(row['quantity']))
         if mat_qty <= 0:
             continue
-        try:
-            material = Material.objects.get(pk=mat_id)
-        except (Material.DoesNotExist, TypeError, ValueError):
-            raise ValueError(f'Материал с id={mat_id!r} не найден')
+        material = Material.objects.get(pk=mat_id)
         try:
             stock = (Stock.objects
                      .select_for_update()

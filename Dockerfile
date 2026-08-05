@@ -1,5 +1,5 @@
 # Базовый образ с Python 3.11
-FROM python:3.12-slim
+FROM python:3.11-slim
 
 # Установить переменные окружения
 ENV PYTHONDONTWRITEBYTECODE=1 \

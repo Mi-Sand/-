@@ -67,16 +67,6 @@
                 url = idx >= 0 ? data.next.slice(idx + 4) : null;
                 guard++;
             }
-            // Массив с полем results, указывающим на себя же.
-            //
-            // Функция возвращает готовый список, но в старом коде мог
-            // остаться вызов вида `data.results.map(...)` — раньше API
-            // отдавал данные в таком виде. Без этой страховки такой вызов
-            // падал бы с невнятной ошибкой «cannot read properties of
-            // undefined», как это уже случалось на странице прихода.
-            Object.defineProperty(all, 'results', {
-                value: all, enumerable: false, configurable: true,
-            });
             return all;
         }
 

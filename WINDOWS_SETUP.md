@@ -6,7 +6,7 @@ Linux и macOS) — отличаются только команды в терм
 
 ## Требования
 
-- **Python 3.12 или новее** — скачать с https://www.python.org/downloads/
+- **Python 3.9+** — скачать с https://www.python.org/downloads/
   При установке **обязательно** отметьте галочку **«Add python.exe to PATH»**
   на первом экране инсталлятора — без неё команда `python` не будет найдена.
 - **PowerShell** (уже есть в Windows 10/11) — рекомендуется вместо
@@ -247,66 +247,6 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
-
-### `AttributeError: module 'pkgutil' has no attribute 'find_loader'`
-
-Полный текст ошибки заканчивается примерно так:
-
-```
-File "...\site-packages\django_filters\__init__.py", line 9, in <module>
-    if pkgutil.find_loader("rest_framework") is not None:
-AttributeError: module 'pkgutil' has no attribute 'find_loader'
-```
-
-Причина не в вашем проекте. Функция `pkgutil.find_loader` объявлена
-устаревшей в Python 3.12 и **удалена в Python 3.14**, а старые версии
-библиотеки `django-filter` (до 23.5) её вызывают. На Python 3.14 такая
-версия падает при запуске.
-
-Лечится обновлением зависимостей:
-
-```powershell
-pip install -r requirements.txt --upgrade
-```
-
-> **Обновляйте только так — через `requirements.txt`.** Команда вида
-> `pip install django-filter --upgrade` без ограничений подтянет за собой
-> и новую Django, что приведёт к следующей ошибке (см. ниже).
-
-### `CheckConstraint.__init__() got an unexpected keyword argument 'check'`
-
-```
-File "...\warehouse\models.py", line 193, in Meta
-    models.CheckConstraint(
-        check=(
-TypeError: CheckConstraint.__init__() got an unexpected keyword argument 'check'
-```
-
-Значит, установлена Django 6.0, а код проекта отстал: в Django 5.1
-параметр `check` переименовали в `condition`, а в 6.0 старое имя убрали.
-
-Проект уже переведён на новое имя. Обновите файлы проекта и зависимости:
-
-```powershell
-git pull
-pip install -r requirements.txt --upgrade
-python manage.py migrate
-```
-
-Новых миграций не появится — переименование параметра не меняет базу.
-
-### Какая версия Django нужна
-
-Проект работает на **Django 5.2 LTS или 6.0**. На 4.2 он больше не
-запустится: там нет параметра `condition`.
-
-Переход сделан намеренно. Поддержка Django 4.2 LTS закончилась в апреле
-2026 года — обновления безопасности для неё не выходят. К тому же
-Python 3.14 официально поддерживается только начиная с Django 6.0, а на
-4.2 работал случайно.
-
-Существующая база переносится без изменений: миграции и данные
-сохраняются, ничего пересоздавать не нужно.
 
 ### Порт 8000 занят
 

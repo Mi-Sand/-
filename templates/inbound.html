@@ -70,6 +70,44 @@
     .doc-item:last-child {
         border-bottom: none;
     }
+    .doc-actions {
+        display: flex;
+        gap: 8px;
+    }
+    .btn-small {
+        flex: 1;
+        padding: 8px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+    }
+    .btn-success {
+        background: var(--ok);
+        color: white;
+    }
+    .btn-success:hover {
+        background: var(--ok);
+    }
+    .btn-danger {
+        background: var(--stop);
+        color: white;
+    }
+    .btn-danger:hover {
+        background: var(--stop);
+    }
+    .btn-info {
+        background: var(--info);
+        color: white;
+    }
+    .btn-info:hover {
+        background: var(--info);
+    }
+    .btn-small:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
     .loading {
         text-align: center;
         padding: 40px;
@@ -112,34 +150,6 @@
     .btn-primary:hover { background: var(--slate-900); }
     .btn-secondary { background: var(--line-strong); color: var(--ink); }
     .btn-secondary:hover { background: #ccc; }
-    /* Кнопки в карточке документа: по содержимому, а не во всю ширину —
-       растянутые на пол-экрана «Отменить» и «Просмотр» выглядят громоздко
-       и сбивают внимание с самих данных документа. */
-    .doc-actions {
-        display: flex; gap: 7px; flex-wrap: wrap;
-        padding-top: 12px; margin-top: 12px;
-        border-top: 1px solid var(--line);
-    }
-    .btn-small {
-        display: inline-flex; align-items: center; gap: 6px;
-        padding: 7px 12px;
-        border: 1px solid var(--line-strong);
-        background: var(--surface);
-        color: var(--ink-2);
-        border-radius: var(--r);
-        cursor: pointer;
-        font: inherit; font-size: 12.5px; font-weight: 550;
-        transition: background .12s, border-color .12s, color .12s;
-    }
-    .btn-small:hover { background: var(--surface-alt); color: var(--ink); }
-    .btn-small .ic, .btn-small .ic-sm { width: 14px; height: 14px; }
-    /* Проведение — основное действие, поэтому единственное залитое */
-    .btn-success { background: var(--ok); border-color: var(--ok); color: #fff; }
-    .btn-success:hover { filter: brightness(.93); background: var(--ok); color: #fff; }
-    .btn-info:hover { border-color: #A8C8E4; background: var(--info-soft); color: var(--info); }
-    .btn-danger:hover { border-color: #E4B8B4; background: var(--stop-soft); color: var(--stop); }
-    .btn-warn:hover { border-color: #E8D5A6; background: var(--warn-soft); color: var(--warn); }
-    .btn-small:disabled { opacity: .5; cursor: not-allowed; }
 </style>
 {% endblock %}
 
@@ -265,7 +275,7 @@
                                 <svg class="ic"><use href="#i-check"></use></svg> Провести
                             </button>
                         ` : `
-                            <button class="btn-small btn-warn" onclick="unprocessDocument(${doc.id})">
+                            <button class="btn-small" style="background:var(--mark); color:#fff;" onclick="unprocessDocument(${doc.id})">
                                 <svg class="ic"><use href="#i-undo"></use></svg> Отменить
                             </button>
                         `}
@@ -337,7 +347,7 @@
             const supplierHtml = suppliers.map(s => 
                 `<option value="${s.id}">${esc(s.name)}</option>`
             ).join('');
-            const warehouseHtml = warehouses.map(w => 
+            const warehouseHtml = warehouses.results.map(w => 
                 `<option value="${w.id}">${esc(w.name)}</option>`
             ).join('');
             

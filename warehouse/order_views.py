@@ -44,19 +44,11 @@ class OrderSerializer(serializers.ModelSerializer):
                   'customer_email', 'address', 'comment', 'status',
                   'status_display', 'created_at', 'items', 'total',
                   'outbound_document']
-        read_only_fields = ['number', 'created_at', 'outbound_document',
-                            'status']
+        read_only_fields = ['number', 'created_at', 'outbound_document']
 
 
-class OrderViewSet(viewsets.ReadOnlyModelViewSet):
-    """Заказы покупателей. Создаются через витрину, обрабатываются здесь.
-
-    Только чтение и три действия ниже. Полноценный ModelViewSet здесь не
-    годится: обычный PATCH позволял бы выставить статус «отгружен», не
-    списав товар со склада, а DELETE — стереть отгруженный заказ вместе со
-    следом в учёте. Смена статуса проходит только через confirm/ship/cancel,
-    где проверяются допустимые переходы и остатки.
-    """
+class OrderViewSet(viewsets.ModelViewSet):
+    """Заказы покупателей. Создаются через витрину, обрабатываются здесь."""
 
     queryset = (Order.objects
                 .prefetch_related('items__product')

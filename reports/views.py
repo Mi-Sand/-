@@ -10,14 +10,12 @@
 
 Отчёты выводятся в JSON и экспортируются в Excel.
 """
-from datetime import date as date_cls, timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 
 from django.db.models import DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 from django.contrib.auth.decorators import login_required
-from django.utils import timezone
-from rest_framework import status as http_status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -26,86 +24,25 @@ from warehouse.models import Material, Stock, StockMovement, Product
 from inventory.models import Inventory
 
 
-def _int_param(value, default, minimum, maximum):
-    """Прочитать целочисленный параметр запроса в заданных границах.
-
-    Параметры приходят из адресной строки, где может оказаться что угодно.
-    Непонятное значение — повод ответить «неверный параметр», а не упасть.
-    """
-    if value in (None, ''):
-        return default
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        raise ValueError(f'Неверное значение параметра: {value!r}')
-    return max(minimum, min(number, maximum))
-
-
-def _date_param(value):
-    """Прочитать дату отчёта в формате ГГГГ-ММ-ДД."""
-    if value in (None, ''):
-        return timezone.localdate()
-    try:
-        return date_cls.fromisoformat(str(value))
-    except ValueError:
-        raise ValueError(f'Неверная дата: {value!r}. Ожидается ГГГГ-ММ-ДД')
-
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def stock_report(request):
-    """Остатки на дату.
-
-    На сегодняшний день отдаёт текущие остатки. Для прошедшей даты остаток
-    восстанавливается по журналу движения: от текущего значения отматываются
-    назад все операции, случившиеся после запрошенного дня. Приход,
-    сделанный позже, вычитается; расход — возвращается; корректировка
-    инвентаризации учитывается со своим знаком.
-    """
-    try:
-        report_date = _date_param(request.query_params.get('date'))
-    except ValueError as e:
-        return Response({'error': str(e)},
-                        status=http_status.HTTP_400_BAD_REQUEST)
+    """Остатки на дату: текущие остатки всех товаров по складам."""
+    date = request.query_params.get('date', datetime.now().date())
     warehouse_id = request.query_params.get('warehouse')
 
     stocks = Stock.objects.select_related('warehouse', 'material', 'product')
+
     if warehouse_id:
         stocks = stocks.filter(warehouse_id=warehouse_id)
 
-    today = timezone.localdate()
-    historical = report_date < today
-
-    # Сумма движений после запрошенной даты — по каждой позиции склада
-    rollback = {}
-    if historical:
-        later = StockMovement.objects.filter(created_at__date__gt=report_date)
-        if warehouse_id:
-            later = later.filter(warehouse_id=warehouse_id)
-        for row in (later
-                    .values('warehouse_id', 'material_id', 'product_id',
-                            'movement_type')
-                    .annotate(total=Coalesce(
-                        Sum('quantity'),
-                        Value(0, output_field=DecimalField())))):
-            key = (row['warehouse_id'], row['material_id'], row['product_id'])
-            delta = row['total']
-            if row['movement_type'] == 'out':
-                delta = -delta
-            # 'in' и 'adjust' уже приходят со знаком «плюс к остатку»
-            rollback[key] = rollback.get(key, 0) + delta
+    stocks = stocks.filter(quantity__gt=0)
 
     rows = []
     for stock in stocks:
-        quantity = stock.quantity
-        if historical:
-            key = (stock.warehouse_id, stock.material_id, stock.product_id)
-            quantity = quantity - rollback.get(key, 0)
-        if quantity <= 0:
-            continue
-
         material = stock.material
         product = stock.product
+
         rows.append({
             'склад': stock.warehouse.name,
             'тип': 'Материал' if material else 'Продукция',
@@ -113,14 +50,13 @@ def stock_report(request):
             'артикул': product.article_number if product else '—',
             'размер': product.size if product else '—',
             'цвет': product.color if product else '—',
-            'количество': float(quantity),
+            'количество': float(stock.quantity),
             'единица': material.get_unit_display() if material else 'шт.',
         })
 
     return Response({
         'отчёт': 'Остатки на дату',
-        'дата': str(report_date),
-        'на_сегодня': not historical,
+        'дата': date,
         'всего_позиций': len(rows),
         'строки': rows,
     })
@@ -130,17 +66,9 @@ def stock_report(request):
 @permission_classes([IsAuthenticated])
 def movement_report(request):
     """Движение товаров за период."""
-    try:
-        days_back = _int_param(request.query_params.get('days'),
-                               default=30, minimum=1, maximum=365)
-    except ValueError as e:
-        return Response({'error': str(e)},
-                        status=http_status.HTTP_400_BAD_REQUEST)
-    # localdate, а не datetime.now(): при TIME_ZONE='Europe/Moscow' наивное
-    # системное время сервера (обычно UTC) сдвигает границы суток на три
-    # часа, и операции раннего утра попадают не в тот день.
-    to_date = timezone.localdate()
-    from_date = to_date - timedelta(days=days_back)
+    days_back = int(request.query_params.get('days', 30))
+    from_date = datetime.now().date() - timedelta(days=days_back)
+    to_date = datetime.now().date()
     warehouse_id = request.query_params.get('warehouse')
 
     movements = (StockMovement.objects
@@ -206,7 +134,7 @@ def reorder_report(request):
 
     return Response({
         'отчёт': 'Позиции для закупки',
-        'дата': str(timezone.localdate()),
+        'дата': str(datetime.now().date()),
         'позиций_в_дефиците': len(rows),
         'строки': rows,
     })
@@ -219,12 +147,6 @@ def inventory_report(request):
     inventory_id = request.query_params.get('inventory')
 
     if inventory_id:
-        try:
-            inventory_id = int(inventory_id)
-        except (TypeError, ValueError):
-            return Response(
-                {'error': f'Неверный номер инвентаризации: {inventory_id!r}'},
-                status=http_status.HTTP_400_BAD_REQUEST)
         inventories = Inventory.objects.filter(pk=inventory_id)
     else:
         inventories = (Inventory.objects
@@ -259,7 +181,7 @@ def inventory_report(request):
 
     return Response({
         'отчёт': 'Результаты инвентаризаций',
-        'дата': str(timezone.localdate()),
+        'дата': str(datetime.now().date()),
         'всего_инвентаризаций': len(results),
         'результаты': results,
     })

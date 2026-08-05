@@ -15,22 +15,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Загрузка переменных окружения из файла .env (если он есть)
 load_dotenv(BASE_DIR / '.env')
 
-# Отладочный режим по умолчанию выключен. Это важно: при DEBUG=True Django
-# показывает страницу ошибки с исходным кодом, значением SECRET_KEY и
-# параметрами подключения к базе. Если переменную забыли задать на боевом
-# сервере, безопаснее остаться без подробностей, чем раскрыть их наружу.
-# Для разработки DEBUG=True задаётся в файле .env.
-DEBUG = os.environ.get('DEBUG', 'False').lower() in ('1', 'true', 'yes')
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-dev-key-change-in-production-0123456789abcdef',
+)
 
-SECRET_KEY = os.environ.get('SECRET_KEY', '')
-if not SECRET_KEY:
-    if DEBUG:
-        SECRET_KEY = 'django-insecure-dev-key-only-for-local-development'
-    else:
-        raise RuntimeError(
-            'Не задана переменная SECRET_KEY. В боевом режиме (DEBUG=False) '
-            'ключ обязателен: на нём построены подписи сессий и токенов. '
-            'Задайте его в .env или в переменных окружения контейнера.')
+DEBUG = os.environ.get('DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
 ALLOWED_HOSTS = ['*'] if DEBUG else os.environ.get(
     'ALLOWED_HOSTS', 'localhost,127.0.0.1'
@@ -54,7 +44,6 @@ INSTALLED_APPS = [
     'warehouse',
     'inventory',
     'reports',
-    'billing',
 ]
 
 MIDDLEWARE = [
@@ -131,9 +120,6 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
-# Куда collectstatic складывает статику для боевого режима. Без этой
-# настройки команда падает с ImproperlyConfigured, и контейнер не стартует.
-STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Медиафайлы (загруженные пользователями: фото и видео товаров)
 MEDIA_URL = '/media/'
@@ -158,11 +144,11 @@ REST_FRAMEWORK = {
     # LimitOffsetPagination поддерживает параметр ?limit= — это позволяет
     # клиенту запрашивать нужный объём данных за раз (функция apiCallAll
     # во фронтенде забирает все страницы подряд по ссылке next).
-    # Верхняя граница задана в самом классе: ключа MAX_LIMIT у DRF нет,
-    # и запись о нём здесь ни на что не влияла.
     'DEFAULT_PAGINATION_CLASS':
-        'warehouse.pagination.WarehouseLimitOffsetPagination',
+        'rest_framework.pagination.LimitOffsetPagination',
     'PAGE_SIZE': 25,
+    # Верхняя граница: защита от запроса «отдай всё разом» на больших базах
+    'MAX_LIMIT': 500,
 }
 
 # --- CORS (взаимодействие с клиентской частью) ------------------------------

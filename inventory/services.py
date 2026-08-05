@@ -20,15 +20,6 @@ from .models import Inventory, InventoryItem
 def build_inventory_sheet(inventory_id):
     """Заполнить опись позициями склада с текущими остатками по системе."""
     inv = Inventory.objects.select_for_update().get(pk=inventory_id)
-
-    # Завершённая опись — документ учёта: по ней уже проведены корректировки
-    # и разосланы уведомления о недостачах. Перезаполнение стёрло бы
-    # результаты пересчёта и вернуло документ в работу задним числом.
-    if inv.status == 'completed':
-        raise ValueError(
-            'Инвентаризация уже завершена — опись изменить нельзя. '
-            'Для повторного пересчёта создайте новую опись.')
-
     inv.items.all().delete()
 
     stocks = Stock.objects.filter(warehouse=inv.warehouse)
@@ -69,25 +60,13 @@ def finalize_inventory(inventory_id, user=None):
                 'difference': diff,
             })
 
+            # Приведение остатка к фактическому + запись корректировки
             stock, _ = Stock.objects.select_for_update().get_or_create(
                 warehouse=inv.warehouse,
                 material=item.material,
                 product=item.product,
                 defaults={'quantity': 0})
-
-            # К остатку применяется расхождение, а не фактическое число.
-            # Между составлением описи и её завершением склад продолжает
-            # работать: мог прийти товар или уйти отгрузка. Если записать
-            # результат пересчёта поверх, эти движения молча пропадут.
-            # Расхождение же остаётся верным независимо от того, что
-            # случилось после пересчёта.
-            new_quantity = stock.quantity + diff
-            if new_quantity < 0:
-                raise ValueError(
-                    f'«{item.item_name}»: расхождение {diff:+g} уводит '
-                    f'остаток в минус (сейчас на складе {stock.quantity:g}). '
-                    f'Проверьте результат пересчёта.')
-            stock.quantity = new_quantity
+            stock.quantity = item.actual_quantity
             stock.save()
 
             StockMovement.objects.create(
@@ -95,9 +74,7 @@ def finalize_inventory(inventory_id, user=None):
                 material=item.material,
                 product=item.product,
                 movement_type='adjust',
-                # Со знаком: недостача — минус, излишек — плюс. По модулю
-                # восстановить остаток на прошедшую дату было бы нельзя.
-                quantity=diff,
+                quantity=abs(diff),
                 document_id=inv.pk,
                 user=user or inv.created_by)
 

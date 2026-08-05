@@ -38,16 +38,13 @@ services:
         condition: service_healthy
     volumes:
       - ./staticfiles:/app/staticfiles
-      - ./media:/app/media
       - ./logs:/app/logs
     ports:
       - "8000:8000"
-    # makemigrations на старте убран намеренно: миграции — часть исходного
-    # кода и должны попадать в репозиторий, а не рождаться на боевом сервере.
-    # Иначе схема базы зависит от того, в каком порядке поднимали контейнеры.
     command: >
       sh -c "
-        python manage.py migrate --noinput &&
+        python manage.py makemigrations accounts warehouse inventory reports &&
+        python manage.py migrate &&
         python manage.py collectstatic --noinput &&
         gunicorn warehouse_config.wsgi:application --bind 0.0.0.0:8000 --workers 4
       "
@@ -61,7 +58,6 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./staticfiles:/app/staticfiles:ro
-      - ./media:/app/media:ro
     depends_on:
       - web
 

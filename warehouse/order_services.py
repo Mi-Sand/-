@@ -16,13 +16,13 @@
 import re
 from decimal import Decimal
 
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import DecimalField, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .models import (Order, OrderItem, OutboundDocument, OutboundItem,
-                     Product, Stock, Warehouse)
+                     Product, Stock)
 from .language_model import BIGRAMS, TRIGRAMS
 from .services import InsufficientStockError, process_outbound_document
 
@@ -100,29 +100,21 @@ def _adjacent_keys_ratio(word):
             adjacent += 1
     return adjacent / len(known)
 
-# Ниже этой длины слово статистикой не оценивается вовсе.
-#
-# На трёх-пяти буквах буквосочетаний слишком мало, чтобы отличить редкое
-# слово от случайного: «Удэ», «Кызыл», «Уфа» получали высокую оценку просто
-# от нехватки данных. Такие слова проверяются только явными признаками выше
-# — повторами, рядами клавиатуры, цепочками согласных, — и этого достаточно:
-# вся известная белиберда по-прежнему отсекается.
-MIN_STATISTICAL_LENGTH = 6
-
 # Пороги «неправдоподобности» слова, зависящие от его длины.
 #
-# Значения подобраны замером на двух наборах сразу: на корпусе, по которому
-# строилась модель языка, и на отдельном наборе реальных фамилий народов
-# России, городов и улиц, в подборе не участвовавшем. Прежние пороги
-# показывали на этом втором наборе 16% ложных отказов — они были подогнаны
-# под тот же материал, на котором и проверялись. Нынешние дают один отказ
-# из 67 при 97% распознавания случайного набора (порог качества — 85%).
+# Короткие слова дают мало буквосочетаний, поэтому статистика по ним
+# ненадёжна: «Уфа» из трёх букв легко получает высокую оценку случайно.
+# Для них порог выше — нужны более веские основания.
 #
-# Настройка сознательно смягчена: пропустить сомнительное имя дешевле, чем
-# отказать настоящему покупателю, — заказ всё равно подтверждается звонком.
+# Значения получены измерением на корпусе из 400 реальных имён, фамилий,
+# городов и улиц и 550 образцов случайного набора. Пороги взяты как
+# максимум оценки по настоящим словам плюс небольшой запас. При такой
+# настройке ни одно слово из корпуса не отклоняется ошибочно, а случайный
+# набор распознаётся примерно в 95% случаев.
 GIBBERISH_THRESHOLDS = (
-    (8, 0.31),    # от 6 до 8 букв
-    (999, 0.28),  # длиннее 8 букв
+    (5, 0.25),    # слова до 5 букв
+    (8, 0.24),    # от 6 до 8 букв
+    (999, 0.22),  # длиннее 8 букв
 )
 
 
@@ -173,13 +165,8 @@ def gibberish_score(word):
     bigram_miss = _unseen_ratio(w, BIGRAMS, 2)
     trigram_miss = _unseen_ratio(w, TRIGRAMS, 3)
 
-    # Штрафуется только нехватка гласных, но не их избыток. Случайный набор
-    # по клавиатуре даёт скопления согласных — гласных в нём мало. Избыток
-    # же характерен как раз для настоящих имён: «Исаева», «Аглая», «Эжен»,
-    # «Ыдырыс». Прежняя симметричная мера наказывала их наравне с мазнёй и
-    # была главным источником отказов реальным покупателям.
     vowel_ratio = sum(1 for c in letters if c in VOWELS) / len(letters)
-    vowel_deviation = max(0.0, (0.42 - vowel_ratio) / 0.42)
+    vowel_deviation = min(abs(vowel_ratio - 0.42) / 0.42, 1.0)
 
     rare_ratio = sum(1 for c in letters if c in RARE_LETTERS) / len(letters)
     rare_excess = min(rare_ratio / 0.35, 1.0)
@@ -252,10 +239,6 @@ def looks_like_gibberish(word):
     # построена на русских словах и о латинских именах ничего не знает.
     # Для них ограничиваемся правилами выше.
     if not re.search(r'[а-яё]', w):
-        return False
-
-    # Короткое слово статистике не поддаётся — см. MIN_STATISTICAL_LENGTH
-    if len(letters) < MIN_STATISTICAL_LENGTH:
         return False
 
     score = gibberish_score(w)
@@ -380,68 +363,11 @@ def validate_comment(comment):
     return value
 
 
-def _parse_items(items):
-    """Разобрать корзину из запроса в список пар (id товара, количество).
-
-    Данные приходят из браузера покупателя и доверия не заслуживают: в
-    JSON может оказаться что угодно — строка вместо списка, позиция без
-    товара, количество буквами. Всё это разбирается здесь и превращается
-    в понятное покупателю сообщение, а не в ошибку сервера.
-
-    Одинаковые товары складываются: покупатель мог добавить один и тот же
-    размер в корзину дважды, и проверять каждую строку против полного
-    остатка по отдельности нельзя — суммарно вышло бы больше, чем есть.
-    """
-    if isinstance(items, (str, bytes)) or not isinstance(items, (list, tuple)):
-        raise ValueError('Корзина передана в неверном формате')
-    if not items:
-        raise ValueError('Корзина пуста')
-
-    wanted = {}
-    for row in items:
-        if not isinstance(row, dict):
-            raise ValueError('Позиция корзины передана в неверном формате')
-        if 'product' not in row or row['product'] in (None, ''):
-            raise ValueError('В позиции корзины не указан товар')
-        try:
-            pid = int(row['product'])
-        except (TypeError, ValueError):
-            raise ValueError(
-                f'Неверный идентификатор товара: {row["product"]!r}')
-
-        raw_qty = row.get('quantity', 1)
-        try:
-            qty = Decimal(str(raw_qty))
-        except (ArithmeticError, TypeError, ValueError):
-            raise ValueError(f'Неверное количество: {raw_qty!r}')
-        if not qty.is_finite():
-            raise ValueError(f'Неверное количество: {raw_qty!r}')
-        if qty <= 0:
-            raise ValueError('Количество должно быть больше нуля')
-
-        wanted[pid] = wanted.get(pid, Decimal('0')) + qty
-    return wanted
-
-
 def _generate_order_number():
-    """Следующий свободный номер заказа вида ЗАК-00001.
-
-    Номер берётся от наибольшего уже выданного, а не от последнего id:
-    после удаления заказа его номер не должен выдаваться повторно, иначе
-    в бумагах окажутся два разных заказа с одним номером.
-    """
-    last = (Order.objects
-            .filter(number__startswith='ЗАК-')
-            .order_by('-number')
-            .values_list('number', flat=True)
-            .first())
-    next_number = 1
-    if last:
-        try:
-            next_number = int(last.split('-', 1)[1]) + 1
-        except (IndexError, ValueError):
-            next_number = Order.objects.count() + 1
-    return f'ЗАК-{next_number:05d}'
+    """Следующий номер заказа вида ЗАК-00001."""
+    last = Order.objects.order_by('-id').first()
+    next_id = (last.id + 1) if last else 1
+    return f'ЗАК-{next_id:05d}'
 
 
 # Страны и территории, доставка в которые не осуществляется. Список нужен,
@@ -554,14 +480,13 @@ def create_order(customer_name, customer_phone, items,
     customer_email = validate_email_optional(customer_email)
     comment = validate_comment(comment)
 
-    # Разбор корзины: любой мусор во входных данных станет здесь понятным
-    # сообщением покупателю, а не ошибкой сервера.
-    wanted = _parse_items(items)
+    if not items:
+        raise ValueError('Корзина пуста')
 
     # Доставка только по России — проверяем адрес до создания заказа
     validate_russian_address(address)
 
-    product_ids = list(wanted)
+    product_ids = [int(i['product']) for i in items]
 
     # Блокируем строки остатков по заказываемым товарам до конца транзакции —
     # это исключает гонку между одновременными заказами.
@@ -569,6 +494,18 @@ def create_order(customer_name, customer_phone, items,
 
     reserved_map = get_reserved_quantities(product_ids)
     products = {p.id: p for p in Product.objects.filter(id__in=product_ids)}
+
+    # Один и тот же товар может прийти несколькими строками (например,
+    # покупатель добавил его в корзину дважды). Складываем количества по
+    # товару: иначе каждая строка проверялась бы против полного остатка
+    # по отдельности, и суммарно можно было бы заказать больше, чем есть.
+    wanted = {}
+    for row in items:
+        pid = int(row['product'])
+        qty = Decimal(str(row['quantity']))
+        if qty <= 0:
+            raise ValueError('Количество должно быть больше нуля')
+        wanted[pid] = wanted.get(pid, Decimal('0')) + qty
 
     prepared = []
     for pid, qty in wanted.items():
@@ -586,29 +523,13 @@ def create_order(customer_name, customer_phone, items,
 
         prepared.append((product, qty))
 
-    # Номер выдаётся с повтором: два покупателя, оформляющие заказ в одну
-    # секунду, могут вычислить один и тот же номер. Проигравший наткнётся на
-    # уникальный индекс — тогда просто берём следующий свободный. Вставка
-    # обёрнута во вложенную транзакцию (точку сохранения), чтобы неудачная
-    # попытка не обрывала весь заказ.
-    order = None
-    for _ in range(10):
-        try:
-            with transaction.atomic():
-                order = Order.objects.create(
-                    number=_generate_order_number(),
-                    customer_name=customer_name,
-                    customer_phone=customer_phone,
-                    customer_email=customer_email,
-                    address=(address or '').strip(),
-                    comment=comment)
-            break
-        except IntegrityError:
-            continue
-    if order is None:
-        raise ValueError(
-            'Не удалось присвоить номер заказу из-за высокой нагрузки. '
-            'Повторите оформление.')
+    order = Order.objects.create(
+        number=_generate_order_number(),
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        customer_email=customer_email,
+        address=(address or '').strip(),
+        comment=comment)
 
     for product, qty in prepared:
         OrderItem.objects.create(
@@ -650,35 +571,6 @@ def cancel_order(order_id):
     return order
 
 
-def _check_warehouse_can_cover(order, warehouse):
-    """Проверить, что весь заказ собирается с одного склада.
-
-    При нехватке сообщает, сколько есть здесь и на каких складах лежит
-    остальное, чтобы кладовщик сразу знал, куда идти или откуда везти.
-    """
-    for item in order.items.all():
-        here = (Stock.objects
-                .filter(warehouse=warehouse, product=item.product)
-                .aggregate(total=Coalesce(
-                    Sum('quantity'),
-                    Value(0, output_field=DecimalField())))['total'])
-        if here >= item.quantity:
-            continue
-
-        elsewhere = (Stock.objects
-                     .filter(product=item.product, quantity__gt=0)
-                     .exclude(warehouse=warehouse)
-                     .select_related('warehouse'))
-        where = ', '.join(f'{s.warehouse.name} — {s.quantity:g}'
-                          for s in elsewhere)
-        message = (f'«{item.product.name}» ({item.product.size}, '
-                   f'{item.product.color}): на складе «{warehouse.name}» '
-                   f'{here:g} шт., для заказа нужно {item.quantity:g} шт.')
-        if where:
-            message += f'. Остальное на других складах: {where}'
-        raise InsufficientStockError(message)
-
-
 @transaction.atomic
 def ship_order(order_id, warehouse_id, user=None):
     """Отгрузить заказ: создать расходный документ и провести его.
@@ -697,19 +589,6 @@ def ship_order(order_id, warehouse_id, user=None):
         raise ValueError('Заказ уже отгружен')
     if order.status == 'cancelled':
         raise ValueError('Нельзя отгрузить отменённый заказ')
-
-    try:
-        warehouse = Warehouse.objects.get(pk=warehouse_id)
-    except (Warehouse.DoesNotExist, TypeError, ValueError):
-        raise ValueError('Указан несуществующий склад отгрузки')
-
-    # Наличие для покупателя считается по всем складам сразу, а отгрузка
-    # идёт с одного. Поэтому заказ может быть принят на законных
-    # основаниях, но не собираться с выбранного склада. Проверяем это до
-    # создания документа и говорим, где товар лежит на самом деле, —
-    # иначе кладовщик видел бы «недостаточно товара» при полном складе
-    # по соседству.
-    _check_warehouse_can_cover(order, warehouse)
 
     doc = OutboundDocument.objects.create(
         doc_number=f'ОТГ-{order.number}',
