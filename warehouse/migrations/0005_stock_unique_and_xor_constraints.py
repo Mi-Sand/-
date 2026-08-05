@@ -67,7 +67,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="stock",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(("material__isnull", False), ("product__isnull", True)),
                     models.Q(("material__isnull", True), ("product__isnull", False)),
                     _connector="OR",
