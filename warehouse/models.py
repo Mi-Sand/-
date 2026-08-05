@@ -441,6 +441,13 @@ class Order(models.Model):
     outbound_document = models.ForeignKey(
         'OutboundDocument', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='orders', verbose_name='Расходный документ')
+    # Реквизиты покупателя, если заказ оформила организация. С витрины
+    # заказы приходят от частных лиц и это поле пустое; счёт им выписать
+    # можно и так, а накладную или УПД организации — уже нет.
+    counterparty = models.ForeignKey(
+        'billing.Counterparty', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='orders',
+        verbose_name='Покупатель-организация')
 
     class Meta:
         db_table = 'orders'

@@ -1,7 +1,7 @@
 """Регистрация моделей в административной панели Django."""
 from django.contrib import admin
 
-from .models import (InboundDocument, InboundItem, Material,
+from .models import (InboundDocument, InboundItem, Material, Order, OrderItem,
                      OutboundDocument, OutboundItem, PriceHistory, Product,
                      Stock, StockMovement, Supplier, Warehouse)
 
@@ -82,3 +82,40 @@ class PriceHistoryAdmin(admin.ModelAdmin):
     list_display = ('recorded_at', 'material', 'product', 'price',
                     'supplier')
     list_filter = ('recorded_at', 'supplier')
+
+
+class OrderItemInline(admin.TabularInline):
+    model = OrderItem
+    extra = 0
+    readonly_fields = ('product', 'quantity', 'price')
+    can_delete = False
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    """Заказы покупателей.
+
+    Только просмотр: заказы создаются с витрины, а статус меняется через
+    подтверждение, отгрузку и отмену — там проверяются допустимые переходы
+    и остатки на складе. Правка статуса руками обошла бы эти проверки.
+    Редактируются лишь реквизиты покупателя-организации, нужные для
+    накладной и УПД.
+    """
+
+    list_display = ('number', 'created_at', 'customer_name',
+                    'customer_phone', 'status', 'counterparty')
+    list_filter = ('status', 'created_at')
+    search_fields = ('number', 'customer_name', 'customer_phone',
+                     'customer_email')
+    date_hierarchy = 'created_at'
+    inlines = [OrderItemInline]
+    autocomplete_fields = ('counterparty',)
+    readonly_fields = ('number', 'customer_name', 'customer_phone',
+                       'customer_email', 'address', 'comment', 'status',
+                       'created_at', 'outbound_document')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
