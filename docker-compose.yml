@@ -1,65 +1,98 @@
-version: '3.8'
+# Развёртывание системы складского учёта ООО «ЛЕКО».
+#
+# Три службы: PostgreSQL, приложение под gunicorn и nginx впереди.
+# Запуск:  docker compose up -d
+#
+# Пароли и ключ берутся из файла .env рядом с этим файлом. Значения после
+# знака «-» — запасные, только чтобы compose поднялся для пробы. Для
+# рабочей установки заполните .env: см. DOCKER.md.
 
 services:
-  # PostgreSQL база данных
+  # --- База данных ---------------------------------------------------------
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     environment:
-      POSTGRES_DB: warehouse_db
-      POSTGRES_USER: warehouse_user
-      POSTGRES_PASSWORD: secure_password_change_me
+      POSTGRES_DB: ${DB_NAME:-warehouse_db}
+      POSTGRES_USER: ${DB_USER:-warehouse_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me_in_env_file}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Порт наружу намеренно не открыт: к базе обращается только
+    # приложение, по внутренней сети compose. Открытый 5432 — это
+    # прямой доступ к данным предприятия из локальной сети.
+    # Для отладки раскомментируйте:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U warehouse_user -d warehouse_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-warehouse_user} -d ${DB_NAME:-warehouse_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
-  # Django приложение
+  # --- Приложение ----------------------------------------------------------
   web:
     build: .
     environment:
       DEBUG: "False"
-      SECRET_KEY: "django-insecure-change-this-to-long-random-string-in-production"
+      SECRET_KEY: ${SECRET_KEY:?Задайте SECRET_KEY в файле .env - см. DOCKER.md}
       DB_ENGINE: postgres
-      DB_NAME: warehouse_db
-      DB_USER: warehouse_user
-      DB_PASSWORD: secure_password_change_me
+      DB_NAME: ${DB_NAME:-warehouse_db}
+      DB_USER: ${DB_USER:-warehouse_user}
+      DB_PASSWORD: ${DB_PASSWORD:-change_me_in_env_file}
       DB_HOST: db
       DB_PORT: "5432"
-      ALLOWED_HOSTS: localhost,127.0.0.1,web
-      DEFAULT_FROM_EMAIL: warehouse@leko.example
-      WAREHOUSE_MANAGER_EMAIL: manager@leko.example
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,web}
+      # Фотографии товаров отдаёт nginx — Django этим заниматься не должен
+      SERVE_MEDIA_FILES: "False"
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-warehouse@leko.example}
+      WAREHOUSE_MANAGER_EMAIL: ${WAREHOUSE_MANAGER_EMAIL:-manager@leko.example}
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./staticfiles:/app/staticfiles
+      # Статику отдаёт nginx, поэтому том общий с ним
+      - staticfiles:/app/staticfiles
+      # Фотографии товаров — на диске хоста: их нельзя терять
+      # при пересборке образа
+      - ./media:/app/media
       - ./logs:/app/logs
-    ports:
-      - "8000:8000"
+    # Порт наружу не открыт: снаружи отвечает nginx на 80-м.
+    # Открытый 8000 в обход nginx означал бы доступ без его настроек.
+    expose:
+      - "8000"
+    # makemigrations на старте убран намеренно: миграции — часть исходного
+    # кода и лежат в репозитории. Создавать их на боевом сервере значит
+    # получить схему базы, зависящую от порядка запуска контейнеров.
     command: >
       sh -c "
-        python manage.py makemigrations accounts warehouse inventory reports &&
-        python manage.py migrate &&
+        python manage.py migrate --noinput &&
         python manage.py collectstatic --noinput &&
-        gunicorn warehouse_config.wsgi:application --bind 0.0.0.0:8000 --workers 4
+        gunicorn warehouse_config.wsgi:application
+          --bind 0.0.0.0:8000 --workers 3 --threads 2
+          --access-logfile - --error-logfile -
       "
+    restart: unless-stopped
 
-  # nginx reverse proxy
+  # --- Веб-сервер ----------------------------------------------------------
   nginx:
     image: nginx:alpine
     ports:
-      - "80:80"
-      - "443:443"
+      - "${HTTP_PORT:-80}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./staticfiles:/app/staticfiles:ro
+      - staticfiles:/app/staticfiles:ro
+      - ./media:/app/media:ro
     depends_on:
-      - web
+      web:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  staticfiles:

@@ -1,404 +1,265 @@
-# Docker развёртывание
+# Развёртывание в Docker
 
-Полное руководство по запуску приложения в контейнерах.
+Способ поставить систему на сервер так, чтобы она работала постоянно:
+PostgreSQL, приложение под gunicorn и nginx впереди — три контейнера,
+поднимаются одной командой.
 
-## Требования
+## Что нужно
 
-- Docker 20.10+
-- Docker Compose 2.0+ (опционально, но рекомендуется)
+- Docker 20.10+ и Docker Compose 2.0+
+  ([Docker Desktop](https://www.docker.com/products/docker-desktop) для
+  Windows и macOS, [Docker Engine](https://docs.docker.com/engine/install/)
+  для Linux)
+- 2 ГБ свободной памяти и ~2 ГБ на диске
 
-Установка:
-- [Docker Desktop для Windows/Mac](https://www.docker.com/products/docker-desktop)
-- [Docker для Linux](https://docs.docker.com/engine/install/)
+Проверить, что всё на месте:
+
+```bash
+docker --version
+docker compose version
+```
 
 ---
 
-## Быстрый старт с Docker Compose (рекомендуется)
+## Запуск
 
-### 1. Подготовка
+### 1. Настройки
 
 ```bash
 cd warehouse_project
-
-# Скопировать и настроить окружение
 cp .env.example .env
-
-# Отредактировать .env если нужно изменить пароли БД
 ```
 
-### 2. Запуск
+Откройте `.env` и заполните три строки:
 
-```bash
-# Запустить все сервисы (БД, приложение, nginx)
-docker-compose up -d
-
-# Ждать примерно 10-15 секунд (БД инициализируется)
-docker-compose logs -f web  # Наблюдать логи приложения
-
-# Когда увидите "Quit the server with CONTROL-C"
-# Приложение готово к работе
+```ini
+SECRET_KEY=<результат команды ниже>
+DB_PASSWORD=<придумайте пароль для базы>
+ALLOWED_HOSTS=localhost,127.0.0.1,<адрес или домен сервера>
 ```
 
-### 3. Первый запуск
+Ключ:
 
 ```bash
-# Создать суперпользователя
-docker-compose exec web python manage.py createsuperuser
-
-# Загрузить тестовые данные (опционально)
-docker-compose exec web python manage.py loaddata fixtures.json
+docker run --rm python:3.12-slim python -c \
+  "import secrets; print(secrets.token_urlsafe(64))"
 ```
 
-### 4. Доступ
+`DEBUG` оставьте `False` — это боевой режим.
 
-- **Веб-интерфейс**: http://localhost (или http://127.0.0.1)
-- **API**: http://localhost/api/
-- **Админ-панель**: http://localhost/admin/
+> **Тот же `.env` читают и Django, и compose.** Пароль базы берётся отсюда
+> в оба места, поэтому менять его нужно в одном файле. Если поднимали
+> систему раньше с другим паролем, поменять его задним числом не выйдет —
+> он уже записан в томе с базой; см. раздел про ошибки ниже.
 
-### 5. Остановка
+### 2. Сборка и запуск
 
 ```bash
-docker-compose down
+docker compose up -d --build
+```
 
-# С удалением объёма БД (осторожно — потеря данных!)
-docker-compose down -v
+Первый раз занимает 3–5 минут: скачиваются образы и ставятся зависимости.
+Дальше — секунды.
+
+### 3. Администратор
+
+```bash
+docker compose exec web python manage.py createsuperuser
+```
+
+### 4. Проверка
+
+```bash
+docker compose exec web python manage.py checksetup --production
+```
+
+Пока команда не скажет «Всё в порядке», раздавать адрес сотрудникам рано.
+
+Открыть: **<http://localhost>**
+
+---
+
+## Что именно поднимается
+
+| Служба | Образ | Наружу | Зачем |
+|---|---|---|---|
+| `db` | postgres:16-alpine | нет | База данных |
+| `web` | собирается из `Dockerfile` | нет | Приложение под gunicorn |
+| `nginx` | nginx:alpine | порт 80 | Отдаёт статику и фото, остальное передаёт приложению |
+
+Наружу выведен только nginx. Порты базы и приложения намеренно закрыты:
+открытый 5432 — это прямой доступ к данным предприятия из локальной сети,
+а открытый 8000 обходил бы настройки nginx.
+
+Порядок запуска соблюдается сам: `web` ждёт, пока база ответит на
+`pg_isready`, а `nginx` — пока приложение начнёт отдавать страницу входа.
+
+### Где лежат данные
+
+| Что | Где | Переживает пересборку |
+|---|---|---|
+| База данных | том `postgres_data` | да |
+| Фотографии товаров | каталог `./media` | да |
+| Журналы | каталог `./logs` | да |
+| Собранная статика | том `staticfiles` | пересобирается |
+
+Фотографии лежат на диске хоста, а не в томе, — чтобы их можно было
+копировать обычными средствами, не заходя в Docker.
+
+---
+
+## Повседневные команды
+
+```bash
+docker compose ps                    # что запущено
+docker compose logs -f web           # журнал приложения
+docker compose logs -f               # журнал всех служб
+docker compose restart web           # перезапустить приложение
+docker compose down                  # остановить (данные сохраняются)
+docker compose up -d                 # запустить снова
+```
+
+Выполнить команду Django:
+
+```bash
+docker compose exec web python manage.py checksetup
+docker compose exec web python manage.py createsuperuser
+docker compose exec web python manage.py changepassword ivanov
+```
+
+Зайти внутрь:
+
+```bash
+docker compose exec web bash
+docker compose exec db psql -U warehouse_user -d warehouse_db
 ```
 
 ---
 
-## Docker Compose состав
-
-`docker-compose.yml` запускает три сервиса:
-
-1. **PostgreSQL** (порт 5432)
-   - Хранит все данные
-   - Создаёт БД `warehouse_db` автоматически
-   - Данные сохраняются в volume `postgres_data`
-
-2. **Django приложение** (порт 8000 внутри, 80 на хосте)
-   - Выполняет миграции БД при старте
-   - Собирает статические файлы
-   - Запускается с Gunicorn (4 воркера)
-
-3. **Nginx** (порт 80)
-   - Reverse proxy к приложению
-   - Служит статические файлы
-   - Обрабатывает HTTPS (если настроен)
-
----
-
-## Запуск отдельно без Compose (для опытных)
-
-### 1. Запустить PostgreSQL
+## Обновление системы
 
 ```bash
-docker run -d \
-  --name warehouse-db \
-  -e POSTGRES_DB=warehouse_db \
-  -e POSTGRES_USER=warehouse_user \
-  -e POSTGRES_PASSWORD=secure_password \
-  -v postgres_data:/var/lib/postgresql/data \
-  -p 5432:5432 \
-  postgres:15-alpine
+git pull                              # или распакуйте новую версию
+docker compose up -d --build          # пересобрать и перезапустить
+docker compose exec web python manage.py checksetup --production
 ```
 
-### 2. Собрать образ приложения
-
-```bash
-docker build -t warehouse-app .
-```
-
-### 3. Запустить приложение
-
-```bash
-docker run -d \
-  --name warehouse-web \
-  --link warehouse-db:db \
-  -e DB_ENGINE=postgres \
-  -e DB_HOST=db \
-  -e DB_NAME=warehouse_db \
-  -e DB_USER=warehouse_user \
-  -e DB_PASSWORD=secure_password \
-  -p 8000:8000 \
-  warehouse-app
-```
-
-### 4. Выполнить миграции
-
-```bash
-docker exec warehouse-web python manage.py migrate
-```
-
----
-
-## Полезные команды
-
-### Логи
-
-```bash
-# Логи всех сервисов
-docker-compose logs -f
-
-# Логи только приложения
-docker-compose logs -f web
-
-# Логи БД
-docker-compose logs -f db
-
-# Последние 100 строк
-docker-compose logs --tail=100 web
-```
-
-### Выполнить команды
-
-```bash
-# Django команды
-docker-compose exec web python manage.py createsuperuser
-docker-compose exec web python manage.py migrate
-docker-compose exec web python manage.py collectstatic
-docker-compose exec web python manage.py shell
-
-# Bash в контейнере
-docker-compose exec web bash
-
-# SQL запросы
-docker-compose exec db psql -U warehouse_user -d warehouse_db
-```
-
-### Очистка
-
-```bash
-# Остановить все контейнеры
-docker-compose down
-
-# Удалить объёмы (потеря данных!)
-docker-compose down -v
-
-# Пересобрать образ
-docker-compose build --no-cache
-
-# Перезапустить приложение
-docker-compose restart web
-```
-
----
-
-## Переменные окружения
-
-При использовании `docker-compose up` переменные из `.env` автоматически загружаются.
-
-Основные переменные можно переопределить через `environment:` в `docker-compose.yml`:
-
-```yaml
-web:
-  environment:
-    DEBUG: "False"
-    SECRET_KEY: "your-secret-key"
-    DB_PASSWORD: "strong-password"
-    EMAIL_HOST: smtp.gmail.com
-    EMAIL_HOST_PASSWORD: "app-password"
-```
-
----
-
-## Production: HTTPS и домены
-
-### 1. Получить сертификат Let's Encrypt
-
-```bash
-# Установить Certbot
-sudo apt-get install certbot python3-certbot-nginx
-
-# Создать сертификат для warehouse.example.com
-sudo certbot certonly --standalone -d warehouse.example.com
-
-# Сертификаты в /etc/letsencrypt/live/warehouse.example.com/
-```
-
-### 2. Обновить nginx.conf
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name warehouse.example.com;
-
-    ssl_certificate /etc/letsencrypt/live/warehouse.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/warehouse.example.com/privkey.pem;
-
-    # ... остальная конфигурация ...
-}
-
-# Редирект с HTTP на HTTPS
-server {
-    listen 80;
-    server_name warehouse.example.com;
-    return 301 https://$server_name$request_uri;
-}
-```
-
-### 3. Обновить docker-compose.yml
-
-```yaml
-services:
-  nginx:
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro  # Монтировать сертификаты
-```
-
-### 4. Автообновление сертификатов
-
-```bash
-# Обновить сертификат
-sudo certbot renew --dry-run
-
-# Перезагрузить nginx в контейнере
-docker-compose exec nginx nginx -s reload
-```
+Миграции применяются при старте контейнера автоматически — они лежат в
+репозитории, а не создаются на сервере.
 
 ---
 
 ## Резервное копирование
 
-### Резервная копия БД
+**База:**
 
 ```bash
-# Экспорт в SQL файл
-docker-compose exec db pg_dump -U warehouse_user warehouse_db > backup.sql
-
-# Восстановление
-docker-compose exec -T db psql -U warehouse_user warehouse_db < backup.sql
+docker compose exec -T db pg_dump -U warehouse_user warehouse_db \
+  | gzip > backup_$(date +%F).sql.gz
 ```
 
-### Резервная копия статических файлов и медиа
+**Фотографии товаров:**
 
 ```bash
-# Если есть media files
-docker-compose exec web tar -czf backup.tar.gz /app/mediafiles /app/staticfiles
-
-# Скопировать на хост
-docker cp warehouse-web:/app/backup.tar.gz ./backup.tar.gz
+tar czf media_$(date +%F).tar.gz media/
 ```
+
+**Восстановление базы:**
+
+```bash
+gunzip -c backup_2026-08-05.sql.gz \
+  | docker compose exec -T db psql -U warehouse_user -d warehouse_db
+```
+
+Поставьте копирование на расписание (`cron` в Linux, «Планировщик заданий»
+в Windows) и **хотя бы раз проверьте, что копия разворачивается.** Копия,
+которую никогда не пробовали восстановить, — это ещё не копия.
 
 ---
 
-## Мониторинг
+## HTTPS
 
-### Проверка здоровья
-
-```bash
-# Endpoint /health должен возвращать 200
-curl http://localhost/health
-
-# Метрики Django (если установлено)
-curl http://localhost/api/dashboard/
-```
-
-### Размер контейнеров
+Для доступа снаружи локальной сети нужен сертификат. Проще всего —
+Let's Encrypt:
 
 ```bash
-# Размер образов
-docker images | grep warehouse
-
-# Размер контейнеров
-docker ps -s
+docker run --rm -p 80:80 -v "$PWD/certs:/etc/letsencrypt" \
+  certbot/certbot certonly --standalone -d sklad.вашдомен.ру
 ```
 
-### Использование ресурсов
+Затем в `nginx.conf` добавьте второй блок `server` на 443-м порту с
+`ssl_certificate` и `ssl_certificate_key`, а на 80-м оставьте
+перенаправление на HTTPS. В `docker-compose.yml` пробросьте порт 443 и
+подключите каталог `./certs` томом к nginx.
 
-```bash
-# CPU, память, сеть
-docker stats warehouse-web warehouse-db
-```
+Не забудьте про продление: сертификат Let's Encrypt живёт 90 дней.
 
 ---
 
-## Масштабирование
+## Если что-то не работает
 
-### Несколько woркеров приложения
+**`SECRET_KEY variable is not set`** — не заполнен `.env`. Compose
+отказывается запускаться без ключа намеренно: без него приложение всё
+равно не стартует, а так причина видна сразу, а не в журнале.
 
-```yaml
-web:
-  deploy:
-    replicas: 3  # 3 экземпляра приложения
-```
-
-Или запустить отдельные контейнеры:
+**Контейнер `web` перезапускается по кругу.** Смотрите журнал:
 
 ```bash
-docker-compose up -d --scale web=3
+docker compose logs web | tail -50
 ```
 
-### Load balancing через nginx
+Частые причины: не задан `SECRET_KEY`, пароль базы не совпадает с тем, что
+записан в томе, нет связи с `db`.
 
-Nginx (в docker-compose.yml) автоматически распределяет нагрузку между несколькими экземплярами.
+**`Bad Request (400)`** — адрес, по которому вы открыли систему, не указан
+в `ALLOWED_HOSTS`. Впишите и перезапустите: `docker compose up -d`.
+
+**Страницы без стилей** — не собралась статика. Пересоберите:
+`docker compose up -d --build`.
+
+**Витрина без фотографий** — проверьте, что каталог `./media` существует и
+в нём есть файлы. Он подключается томом и к `web`, и к `nginx`.
+
+**`port is already allocated`** — 80-й порт занят другой программой.
+Задайте другой в `.env`:
+
+```ini
+HTTP_PORT=8080
+```
+
+**Пароль базы поменяли, а `web` не подключается.** Пароль записан в томе
+при первом запуске и задним числом не меняется. Либо смените его внутри
+PostgreSQL:
+
+```bash
+docker compose exec db psql -U warehouse_user -d warehouse_db \
+  -c "ALTER USER warehouse_user WITH PASSWORD 'новый_пароль';"
+```
+
+либо начните с чистой базы (**все данные пропадут**):
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+**Не хватает места на диске.** Уберите неиспользуемые образы:
+
+```bash
+docker system prune -a
+```
+
+Тома с данными эта команда не трогает, но удаляет все образы, которые
+сейчас не используются.
 
 ---
 
-## Troubleshooting
+## Полная очистка
 
-### Ошибка: "database connection refused"
-
-Обычно БД ещё не готова при старте приложения.
+Останавливает всё и **удаляет базу вместе с данными**:
 
 ```bash
-# Убедиться что БД запущена
-docker-compose logs db
-
-# Перезапустить с задержкой
-docker-compose restart web
-docker-compose exec web python manage.py migrate
+docker compose down -v
 ```
 
-### Ошибка: "permission denied" при доступе к файлам
-
-```bash
-# Проверить права в контейнере
-docker-compose exec web ls -la /app
-
-# Изменить владельца файлов
-docker-compose exec web chown -R www-data:www-data /app
-```
-
-### Приложение медленное или падает
-
-```bash
-# Увеличить workers в docker-compose.yml
-command: ["gunicorn", "warehouse_config.wsgi:application", 
-          "--bind", "0.0.0.0:8000", "--workers", "8"]
-
-# Увеличить память контейнера
-deploy:
-  resources:
-    limits:
-      memory: 2G
-```
-
-### Очистить всё и начать заново
-
-```bash
-# Остановить и удалить всё
-docker-compose down -v
-
-# Пересобрать
-docker-compose build --no-cache
-
-# Запустить с нуля
-docker-compose up -d
-docker-compose exec web python manage.py createsuperuser
-```
-
----
-
-## Файлы для сохранения между запусками
-
-При использовании Docker важно сохранять:
-
-1. **Volume PostgreSQL** (`postgres_data`) — хранит БД
-2. **Volume статических файлов** (если нужно сохранить)
-3. **Конфигурация** (.env файл)
-
-В `docker-compose.yml` это автоматически сделано через `volumes:`.
+Каталоги `./media` и `./logs` при этом остаются — они на диске хоста.

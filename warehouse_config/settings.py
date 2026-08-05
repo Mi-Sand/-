@@ -15,12 +15,35 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Загрузка переменных окружения из файла .env (если он есть)
 load_dotenv(BASE_DIR / '.env')
 
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY',
-    'django-insecure-dev-key-change-in-production-0123456789abcdef',
-)
+# Отладочный режим по умолчанию выключен.
+#
+# Это важнее, чем кажется: при DEBUG=True страница любой ошибки показывает
+# исходный код, значение SECRET_KEY и параметры подключения к базе — и
+# видит её каждый, кто открыл систему в браузере. Если переменную забыли
+# задать на рабочем сервере, безопаснее остаться без подробностей, чем
+# раскрыть их наружу. Для разработки DEBUG=True ставится в файле .env.
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ('1', 'true', 'yes')
 
-DEBUG = os.environ.get('DEBUG', 'True').lower() in ('1', 'true', 'yes')
+# Ключ, которым подписываются сессии и токены.
+#
+# Запасное значение существует только для разработки. В боевом режиме его
+# нет намеренно: система откажется запускаться, пока ключ не задан, и это
+# лучше, чем молча работать с общеизвестным ключом — по нему подделывается
+# сессия любого сотрудника, включая администратора.
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
+if not SECRET_KEY or SECRET_KEY.startswith('ЗАМЕНИТЕ'):
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-dev-key-only-for-local-development'
+    else:
+        raise RuntimeError(
+            'Не задана переменная SECRET_KEY.\n\n'
+            'В боевом режиме (DEBUG=False) ключ обязателен: на нём '
+            'построены подписи сессий, и с общеизвестным ключом любой '
+            'может выдать себя за администратора.\n\n'
+            'Сгенерировать новый:\n'
+            '    python -c "from django.core.management.utils import '
+            'get_random_secret_key as k; print(k())"\n\n'
+            'и вписать результат в .env строкой SECRET_KEY=...')
 
 ALLOWED_HOSTS = ['*'] if DEBUG else os.environ.get(
     'ALLOWED_HOSTS', 'localhost,127.0.0.1'
@@ -49,6 +72,11 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # Раздаёт собранную статику силами приложения. Нужен, когда перед
+    # Django нет nginx: в боевом режиме Django статику не отдаёт, и
+    # интерфейс остался бы без стилей. Идёт сразу после
+    # SecurityMiddleware — так требует whitenoise.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -124,9 +152,32 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
+# Куда collectstatic складывает статику для боевого режима.
+#
+# Без этой настройки команда завершается ошибкой ImproperlyConfigured. В
+# docker-compose она выполняется при старте контейнера, поэтому раньше
+# контейнер просто не поднимался — а причина из журнала была неочевидна.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Хранилище со сжатием: whitenoise заранее готовит сжатые копии файлов.
+# Вариант с хешами в именах сознательно не берём — он падает, если в
+# разметке упомянут файл, которого нет, а для этой системы такая строгость
+# только мешает.
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+
 # Медиафайлы (загруженные пользователями: фото и видео товаров)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Раздавать ли фотографии товаров силами самого Django.
+#
+# Нужно, когда перед приложением нет веб-сервера: при запуске на офисном
+# компьютере или через `runserver` в боевом режиме. Без этого витрина
+# осталась бы без картинок, причём молча — файлы просто не находятся.
+# В docker-compose переменная выключена: там их отдаёт nginx, и делает
+# это быстрее.
+SERVE_MEDIA_FILES = os.environ.get(
+    'SERVE_MEDIA_FILES', 'True').lower() in ('1', 'true', 'yes')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -148,10 +199,8 @@ REST_FRAMEWORK = {
     # клиенту запрашивать нужный объём данных за раз (функция apiCallAll
     # во фронтенде забирает все страницы подряд по ссылке next).
     'DEFAULT_PAGINATION_CLASS':
-        'rest_framework.pagination.LimitOffsetPagination',
+        'warehouse.pagination.WarehouseLimitOffsetPagination',
     'PAGE_SIZE': 25,
-    # Верхняя граница: защита от запроса «отдай всё разом» на больших базах
-    'MAX_LIMIT': 500,
 }
 
 # --- CORS (взаимодействие с клиентской частью) ------------------------------
