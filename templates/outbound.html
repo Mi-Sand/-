@@ -56,7 +56,7 @@
         <option value="true">Проведены</option>
     </select>
     <button class="btn btn-ghost" onclick="loadDocuments()" style="margin-left: auto;"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
-    <button class="btn btn-primary" onclick="openCreateModal()">+ Новый расход</button>
+    {% if user_perms.documents %}<button class="btn btn-primary" onclick="openCreateModal()">+ Новый расход</button>{% endif %}
 </div>
 
 <div id="loading" class="loading">Загрузка документов...</div>

@@ -1,7 +1,7 @@
 """Обработчики API модуля инвентаризации."""
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from accounts.permissions import CanEditDocuments
 from rest_framework.response import Response
 
 from .models import Inventory, InventoryItem
@@ -14,7 +14,7 @@ class InventoryViewSet(viewsets.ModelViewSet):
                 .select_related('warehouse', 'created_by')
                 .prefetch_related('items__material', 'items__product'))
     serializer_class = InventorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanEditDocuments]
     filterset_fields = ['warehouse', 'status']
 
     @action(detail=True, methods=['post'])

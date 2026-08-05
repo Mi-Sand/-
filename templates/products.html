@@ -44,7 +44,7 @@
         <option value="accessories">Аксессуары</option>
         <option value="equipment">Инвентарь</option>
     </select>
-    <button class="btn btn-primary" onclick="openAddModal()">+ Добавить продукцию</button>
+    {% if user_perms.catalog %}<button class="btn btn-primary" onclick="openAddModal()">+ Добавить продукцию</button>{% endif %}
 </div>
 
 <div id="loading" class="loading">Загрузка продукции...</div>

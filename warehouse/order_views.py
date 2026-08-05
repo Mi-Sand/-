@@ -10,6 +10,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from accounts.permissions import CanEditDocuments, CanProcessOrders
+
 from .models import Order, OrderItem
 from .order_services import (cancel_order, confirm_order, ship_order)
 from .services import InsufficientStockError
@@ -57,6 +59,22 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filterset_fields = ['status']
     ordering_fields = ['created_at', 'number']
+
+    def get_permissions(self):
+        """Права зависят от действия, а не от раздела в целом.
+
+        Заказ проходит через руки двух разных людей. Менеджер связывается
+        с покупателем и подтверждает или отменяет заказ — это работа с
+        клиентом. Отгрузка же списывает товар со склада, то есть меняет
+        остатки, и относится к складским операциям наравне с расходным
+        документом. Поэтому у неё требования строже.
+        """
+        if self.action == 'ship':
+            return [CanEditDocuments()]
+        if self.action in ('confirm', 'cancel', 'create', 'update',
+                           'partial_update', 'destroy'):
+            return [CanProcessOrders()]
+        return [IsAuthenticated()]
 
     @action(detail=True, methods=['post'])
     def confirm(self, request, pk=None):

@@ -12,6 +12,8 @@ from django.db.models.functions import Coalesce
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
+
+from accounts.permissions import CanEditDocuments, CanManageCatalog
 from rest_framework.response import Response
 
 from .models import (InboundDocument, Material, OutboundDocument, Product,
@@ -29,7 +31,7 @@ from .services import (InsufficientStockError, process_inbound_document,
 class MaterialViewSet(viewsets.ModelViewSet):
     queryset = Material.objects.all()
     serializer_class = MaterialSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'unit']
     search_fields = ['name', 'description']
     ordering_fields = ['name', 'category', 'reorder_point']
@@ -52,7 +54,7 @@ class MaterialViewSet(viewsets.ModelViewSet):
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'size', 'color', 'status']
     search_fields = ['name', 'article_number', 'color']
     ordering_fields = ['name', 'article_number', 'selling_price']
@@ -61,13 +63,13 @@ class ProductViewSet(viewsets.ModelViewSet):
 class WarehouseViewSet(viewsets.ModelViewSet):
     queryset = Warehouse.objects.all()
     serializer_class = WarehouseSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanManageCatalog]
 
 
 class SupplierViewSet(viewsets.ModelViewSet):
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanManageCatalog]
     search_fields = ['name', 'inn', 'contact_person']
 
 
@@ -77,7 +79,7 @@ class InboundDocumentViewSet(viewsets.ModelViewSet):
                 .select_related('supplier', 'warehouse', 'created_by')
                 .prefetch_related('items'))
     serializer_class = InboundDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanEditDocuments]
     filterset_fields = ['warehouse', 'supplier', 'processed']
     ordering_fields = ['doc_date', 'doc_number']
 
@@ -137,7 +139,7 @@ class OutboundDocumentViewSet(viewsets.ModelViewSet):
                 .select_related('warehouse', 'created_by')
                 .prefetch_related('items'))
     serializer_class = OutboundDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanEditDocuments]
     filterset_fields = ['warehouse', 'purpose', 'processed']
     ordering_fields = ['doc_date', 'doc_number']
 
@@ -299,7 +301,7 @@ def dashboard_summary(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([CanEditDocuments])
 def produce_view(request):
     """Произвести продукцию из материалов.
 

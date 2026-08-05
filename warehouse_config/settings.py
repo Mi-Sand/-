@@ -70,6 +70,9 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # Права текущего сотрудника — чтобы страницы не показывали
+                # кнопок, которые его роли всё равно недоступны
+                'accounts.context_processors.user_permissions',
             ],
         },
     },

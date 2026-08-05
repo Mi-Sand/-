@@ -142,7 +142,7 @@
         <option value="polymer">Полимеры</option>
         <option value="fittings">Фурнитура</option>
     </select>
-    <button class="btn btn-primary" onclick="openAddModal()">+ Добавить материал</button>
+    {% if user_perms.catalog %}<button class="btn btn-primary" onclick="openAddModal()">+ Добавить материал</button>{% endif %}
 </div>
 
 <div id="loading" class="loading">Загрузка материалов...</div>
@@ -270,8 +270,8 @@
                 <td><strong style="color:${low ? 'var(--stop)' : 'var(--ok)'}">${stock}</strong>${low ? ' <svg class="ic"><use href="#i-alert"></use></svg>' : ''}</td>
                 <td>${m.reorder_point}</td>
                 <td><div class="row-actions">
-                    <button class="act act-edit" title="Редактировать" onclick="editMaterial(${m.id})"><svg class="ic"><use href="#i-edit"></use></svg></button>
-                    <button class="act act-del" title="Удалить" onclick="deleteMaterial(${m.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>
+                    ${can('catalog') ? `<button class="act act-edit" title="Редактировать" onclick="editMaterial(${m.id})"><svg class="ic"><use href="#i-edit"></use></svg></button>` : ''}
+                    ${can('catalog') ? `<button class="act act-del" title="Удалить" onclick="deleteMaterial(${m.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>` : ''}
                 </div></td>
             </tr>
         `;}).join('');

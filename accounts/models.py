@@ -49,6 +49,16 @@ class User(AbstractUser):
             self.Role.ECONOMIST, self.Role.ADMIN, self.Role.STOREKEEPER)
 
     @property
+    def can_process_orders(self):
+        """Заказы покупателей ведут менеджер, кладовщик и администратор.
+
+        Отгрузка сюда не входит: она списывает товар со склада и потому
+        требует прав на складские документы (can_edit_documents).
+        """
+        return self.role in (
+            self.Role.MANAGER, self.Role.STOREKEEPER, self.Role.ADMIN)
+
+    @property
     def can_view_reports(self):
         """Отчёты доступны всем ролям, кроме отключённых учёток."""
         return self.is_active

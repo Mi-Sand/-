@@ -51,7 +51,7 @@
 
 <div class="toolbar">
     <button class="btn btn-ghost" onclick="loadInventories()" style="margin-left:auto;"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
-    <button class="btn btn-primary" onclick="openCreateModal()">+ Новая инвентаризация</button>
+    {% if user_perms.documents %}<button class="btn btn-primary" onclick="openCreateModal()">+ Новая инвентаризация</button>{% endif %}
 </div>
 
 <div id="loading" class="loading">Загрузка...</div>
@@ -107,9 +107,9 @@
                     <span class="inv-status st-${inv.status}">${inv.status_display || statusNames[inv.status]}</span>
                     <div class="inv-info"><svg class="ic"><use href="#i-box"></use></svg> ${esc(inv.warehouse_name)}<br><svg class="ic"><use href="#i-calendar"></use></svg> ${new Date(inv.created_at).toLocaleDateString('ru-RU')}</div>
                     <div class="inv-actions">
-                        ${inv.status === 'draft' ? `<button class="btn-sm btn-blue" onclick="buildSheet(${inv.id})"><svg class="ic"><use href="#i-edit"></use></svg> Заполнить опись</button>` : ''}
-                        ${inv.status === 'in_progress' ? `<button class="btn-sm btn-blue" onclick="openCounts(${inv.id})"><svg class="ic"><use href="#i-edit"></use></svg> Внести факт</button>` : ''}
-                        ${inv.status === 'in_progress' ? `<button class="btn-sm btn-green" onclick="finalize(${inv.id})"><svg class="ic"><use href="#i-check"></use></svg> Завершить</button>` : ''}
+                        ${inv.status === 'draft' && can('documents') ? `<button class="btn-sm btn-blue" onclick="buildSheet(${inv.id})"><svg class="ic"><use href="#i-edit"></use></svg> Заполнить опись</button>` : ''}
+                        ${inv.status === 'in_progress' && can('documents') ? `<button class="btn-sm btn-blue" onclick="openCounts(${inv.id})"><svg class="ic"><use href="#i-edit"></use></svg> Внести факт</button>` : ''}
+                        ${inv.status === 'in_progress' && can('documents') ? `<button class="btn-sm btn-green" onclick="finalize(${inv.id})"><svg class="ic"><use href="#i-check"></use></svg> Завершить</button>` : ''}
                         ${inv.status === 'completed' ? `<button class="btn-sm btn-blue" onclick="openCounts(${inv.id})"><svg class="ic"><use href="#i-eye"></use></svg> Результаты</button>` : ''}
                         ${inv.status !== 'completed' ? `<button class="btn-sm btn-red" onclick="deleteInv(${inv.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>` : ''}
                     </div>

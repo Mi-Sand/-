@@ -149,11 +149,11 @@
                 <div class="items">${items}</div>
                 <div class="total">Итого: ${Number(o.total).toLocaleString('ru-RU')} ₽</div>
                 <div class="actions">
-                    ${o.status === 'new' ? `<button class="btn-sm b-confirm" onclick="confirmOrder(${o.id})"><svg class="ic"><use href="#i-check"></use></svg> Подтвердить</button>` : ''}
+                    ${o.status === 'new' && can('orders') ? `<button class="btn-sm b-confirm" onclick="confirmOrder(${o.id})"><svg class="ic"><use href="#i-check"></use></svg> Подтвердить</button>` : ''}
                     ${(o.status === 'new' || o.status === 'confirmed')
-                        ? `<button class="btn-sm b-ship" onclick="openShip(${o.id})"><svg class="ic"><use href="#i-box"></use></svg> Отгрузить</button>` : ''}
+                        && can('documents') ? `<button class="btn-sm b-ship" onclick="openShip(${o.id})"><svg class="ic"><use href="#i-box"></use></svg> Отгрузить</button>` : ''}
                     ${o.status !== 'shipped' && o.status !== 'cancelled'
-                        ? `<button class="btn-sm b-cancel" onclick="cancelOrder(${o.id})"><svg class="ic"><use href="#i-x"></use></svg> Отменить</button>` : ''}
+                        && can('orders') ? `<button class="btn-sm b-cancel" onclick="cancelOrder(${o.id})"><svg class="ic"><use href="#i-x"></use></svg> Отменить</button>` : ''}
                 </div>
             </div>`;
         }).join('') + '</div>';

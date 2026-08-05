@@ -191,7 +191,7 @@ class InboundItem(models.Model):
         constraints = [
             # Строка ссылается либо на материал, либо на продукцию, но не оба
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(material__isnull=False, product__isnull=True) |
                     models.Q(material__isnull=True, product__isnull=False)
                 ),
@@ -267,7 +267,7 @@ class OutboundItem(models.Model):
         verbose_name_plural = 'Строки расхода'
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(material__isnull=False, product__isnull=True) |
                     models.Q(material__isnull=True, product__isnull=False)
                 ),

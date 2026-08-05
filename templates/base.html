@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Складской учёт ООО «ЛЕКО»{% endblock %}</title>
     <script>
+        // Права текущего сотрудника. Страницы прячут по ним кнопки,
+        // которые его роли недоступны. Это удобство, а не защита:
+        // настоящие проверки стоят на сервере, в accounts/permissions.py.
+        const USER_PERMS = {
+            catalog:   {{ user_perms.catalog|yesno:"true,false,false" }},
+            documents: {{ user_perms.documents|yesno:"true,false,false" }},
+            orders:    {{ user_perms.orders|yesno:"true,false,false" }},
+            admin:     {{ user_perms.admin|yesno:"true,false,false" }}
+        };
+
+        // Показать элемент только при наличии права: can('documents')
+        function can(what) {
+            return USER_PERMS[what] === true;
+        }
+
         // Получить CSRF токен из cookies
         function getCookie(name) {
             const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));

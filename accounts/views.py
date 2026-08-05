@@ -8,18 +8,9 @@ API управления сотрудниками (пользователями 
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
+from .permissions import IsAdminRole
 from .models import User
 from .serializers import UserSerializer
-
-
-class IsAdminRole(IsAuthenticated):
-    """Разрешает доступ только администратору или суперпользователю."""
-
-    def has_permission(self, request, view):
-        if not super().has_permission(request, view):
-            return False
-        user = request.user
-        return user.is_superuser or getattr(user, 'role', None) == 'admin'
 
 
 class UserViewSet(viewsets.ModelViewSet):
