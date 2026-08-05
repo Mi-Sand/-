@@ -248,6 +248,40 @@ python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
 
+### `AttributeError: module 'pkgutil' has no attribute 'find_loader'`
+
+Полный текст ошибки заканчивается примерно так:
+
+```
+File "...\site-packages\django_filters\__init__.py", line 9, in <module>
+    if pkgutil.find_loader("rest_framework") is not None:
+AttributeError: module 'pkgutil' has no attribute 'find_loader'
+```
+
+Причина не в вашем проекте. Функция `pkgutil.find_loader` объявлена
+устаревшей в Python 3.12 и **удалена в Python 3.14**, а старые версии
+библиотеки `django-filter` (до 23.5) её вызывают. На Python 3.14 такая
+версия падает при запуске.
+
+Лечится обновлением библиотеки:
+
+```powershell
+pip install -r requirements.txt --upgrade
+```
+
+Либо, если нужно поправить только её:
+
+```powershell
+pip install "django-filter>=23.5,<26"
+```
+
+Верхняя граница важна: начиная с 26.0 библиотека требует Django 5, а
+проект работает на Django 4.2 LTS.
+
+> Похожая ошибка с другим именем модуля лечится так же — обновлением
+> зависимостей. Версии в `requirements.txt` намеренно заданы
+> диапазонами, чтобы такие исправления ставились сами.
+
 ### Порт 8000 занят
 
 ```powershell
