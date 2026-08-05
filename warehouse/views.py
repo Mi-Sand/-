@@ -338,15 +338,27 @@ def produce_view(request):
     """
     data = request.data
     try:
-        product = produce_product(
+        run = produce_product(
             product_id=data['product'],
             quantity=data['quantity'],
             product_warehouse_id=data['product_warehouse'],
             materials=data.get('materials', []),
             material_warehouse_id=data['material_warehouse'],
             user=request.user if request.user.is_authenticated else None)
-        return Response({'status': 'ok', 'product': product.name,
-                         'quantity': str(data['quantity'])})
+
+        # Себестоимость возвращается сразу: кладовщик видит, во что
+        # обошёлся выпуск, не переходя в отчёты
+        return Response({
+            'status': 'ok',
+            'product': run.product.name,
+            'quantity': str(run.quantity),
+            'run_number': run.number,
+            'material_cost': float(run.material_cost),
+            'unit_cost': float(run.unit_cost),
+            'planned_unit_cost': float(run.planned_unit_cost),
+            'cost_deviation': float(run.cost_deviation),
+            'pricing_complete': run.pricing_complete,
+        })
     except InsufficientStockError as e:
         return Response({'error': str(e)},
                         status=status.HTTP_400_BAD_REQUEST)

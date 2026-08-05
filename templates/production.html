@@ -147,8 +147,32 @@
         const btn = document.querySelector('.btn-produce');
         btn.disabled = true;
         try {
-            await apiCall('/produce/', 'POST', data);
-            showMessage(`Произведено! Продукция оприходована, материалы списаны.`, 'success');
+            const result = await apiCall('/produce/', 'POST', data);
+
+            // Себестоимость показываем сразу: ради неё и считается
+            const fact = Number(result.unit_cost).toLocaleString('ru-RU',
+                {minimumFractionDigits: 2});
+            const plan = Number(result.planned_unit_cost).toLocaleString('ru-RU',
+                {minimumFractionDigits: 2});
+            const dev = Number(result.cost_deviation);
+
+            let text = `Выпуск ${result.run_number}: продукция оприходована, `
+                     + `материалы списаны.<br>`
+                     + `Себестоимость единицы: <b>${fact} ₽</b> `
+                     + `(план ${plan} ₽`;
+            if (dev > 0) {
+                text += `, <span style="color:var(--stop);">дороже на `
+                      + `${dev.toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</span>`;
+            } else if (dev < 0) {
+                text += `, <span style="color:var(--ok);">дешевле на `
+                      + `${Math.abs(dev).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</span>`;
+            }
+            text += ')';
+            if (!result.pricing_complete) {
+                text += `<br><small>По части материалов закупок не было — `
+                      + `себестоимость занижена.</small>`;
+            }
+            showMessage(text, 'success');
             document.getElementById('produceForm').reset();
             document.getElementById('materialsList').innerHTML = '';
             addMaterialRow();

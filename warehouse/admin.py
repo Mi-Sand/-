@@ -3,6 +3,7 @@ from django.contrib import admin
 
 from .models import (InboundDocument, InboundItem, Material,
                      OutboundDocument, OutboundItem, PriceHistory, Product,
+                     ProductionMaterial, ProductionRun,
                      Stock, StockMovement, Supplier, Warehouse)
 
 
@@ -82,3 +83,37 @@ class PriceHistoryAdmin(admin.ModelAdmin):
     list_display = ('recorded_at', 'material', 'product', 'price',
                     'supplier')
     list_filter = ('recorded_at', 'supplier')
+
+
+class ProductionMaterialInline(admin.TabularInline):
+    model = ProductionMaterial
+    extra = 0
+    readonly_fields = ('material', 'quantity', 'unit_price', 'price_known')
+    can_delete = False
+
+
+@admin.register(ProductionRun)
+class ProductionRunAdmin(admin.ModelAdmin):
+    """Выпуски продукции — только просмотр.
+
+    Записи создаёт операция производства вместе со списанием материалов и
+    оприходованием изделий. Править их руками значило бы разойтись с
+    журналом движения.
+    """
+
+    list_display = ('number', 'created_at', 'product', 'quantity',
+                    'unit_cost', 'planned_unit_cost', 'pricing_complete')
+    list_filter = ('pricing_complete', 'created_at', 'product_warehouse')
+    search_fields = ('number', 'product__name', 'product__article_number')
+    date_hierarchy = 'created_at'
+    inlines = [ProductionMaterialInline]
+    readonly_fields = ('number', 'product', 'quantity', 'product_warehouse',
+                       'material_warehouse', 'material_cost', 'unit_cost',
+                       'planned_unit_cost', 'pricing_complete',
+                       'created_at', 'created_by')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

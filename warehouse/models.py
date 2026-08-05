@@ -467,3 +467,114 @@ class OrderItem(models.Model):
     @property
     def sum(self):
         return self.quantity * self.price
+
+
+# ===========================================================================
+#  ПРОИЗВОДСТВО
+# ===========================================================================
+class ProductionRun(models.Model):
+    """Выпуск продукции: что произвели, из чего и по какой себестоимости.
+
+    Раньше производство не оставляло следа: списывались материалы,
+    приходовалась продукция, и в журнале появлялисьдве несвязанные записи
+    движения. Восстановить, из чего именно сделана партия и во что она
+    обошлась, было невозможно.
+
+    Себестоимость считается по последним закупочным ценам израсходованных
+    материалов — тем самым, что складываются в PriceHistory при каждом
+    проведении прихода. Эта таблица тоже до сих пор только заполнялась и
+    никем не читалась.
+
+    Полученная величина — фактическая себестоимость материалов, без
+    зарплаты, амортизации и накладных расходов. Она не заменяет плановую
+    себестоимость из карточки товара, а даёт с чем её сравнить: если
+    фактическая ушла выше плановой, цена продукции больше не покрывает
+    затрат.
+    """
+
+    number = models.CharField('Номер', max_length=50, unique=True)
+    product = models.ForeignKey(
+        Product, on_delete=models.PROTECT, related_name='production_runs',
+        verbose_name='Продукция')
+    quantity = models.DecimalField(
+        'Количество', max_digits=12, decimal_places=2,
+        validators=[MinValueValidator(0)])
+    product_warehouse = models.ForeignKey(
+        Warehouse, on_delete=models.PROTECT,
+        related_name='production_output', verbose_name='Склад продукции')
+    material_warehouse = models.ForeignKey(
+        Warehouse, on_delete=models.PROTECT,
+        related_name='production_input', verbose_name='Склад материалов')
+
+    material_cost = models.DecimalField(
+        'Стоимость материалов', max_digits=14, decimal_places=2, default=0)
+    unit_cost = models.DecimalField(
+        'Себестоимость единицы', max_digits=12, decimal_places=2, default=0)
+    planned_unit_cost = models.DecimalField(
+        'Плановая себестоимость единицы', max_digits=12, decimal_places=2,
+        default=0,
+        help_text='Значение из карточки товара на момент выпуска')
+    pricing_complete = models.BooleanField(
+        'Цены известны по всем материалам', default=True,
+        help_text='Снимается, если по какому-то материалу не было ни одной '
+                  'закупки — тогда себестоимость занижена')
+
+    created_at = models.DateTimeField('Выпущено', auto_now_add=True,
+                                      db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, verbose_name='Выпустил')
+
+    class Meta:
+        db_table = 'production_runs'
+        ordering = ['-created_at', '-id']
+        verbose_name = 'Выпуск продукции'
+        verbose_name_plural = 'Выпуски продукции'
+
+    def __str__(self):
+        return f'Выпуск № {self.number}: {self.product} × {self.quantity}'
+
+    @property
+    def cost_deviation(self):
+        """Отклонение фактической себестоимости от плановой, в рублях."""
+        return self.unit_cost - self.planned_unit_cost
+
+    @property
+    def cost_deviation_percent(self):
+        """То же в процентах. Без плановой себестоимости не считается."""
+        if not self.planned_unit_cost:
+            return None
+        return (self.cost_deviation / self.planned_unit_cost) * 100
+
+
+class ProductionMaterial(models.Model):
+    """Материал, израсходованный на выпуск, с ценой на момент списания.
+
+    Цена сохраняется в строке, а не берётся из справочника при просмотре:
+    закупочные цены меняются, и себестоимость прошлогодней партии не
+    должна пересчитываться по сегодняшним ценам.
+    """
+
+    run = models.ForeignKey(
+        ProductionRun, on_delete=models.CASCADE, related_name='materials')
+    material = models.ForeignKey(
+        Material, on_delete=models.PROTECT, verbose_name='Материал')
+    quantity = models.DecimalField(
+        'Количество', max_digits=12, decimal_places=2)
+    unit_price = models.DecimalField(
+        'Цена за единицу', max_digits=12, decimal_places=2, default=0)
+    price_known = models.BooleanField(
+        'Цена известна', default=True,
+        help_text='Ложь, если по материалу не было ни одной закупки')
+
+    class Meta:
+        db_table = 'production_materials'
+        verbose_name = 'Материал выпуска'
+        verbose_name_plural = 'Материалы выпуска'
+
+    def __str__(self):
+        return f'{self.material} × {self.quantity}'
+
+    @property
+    def total(self):
+        return self.quantity * self.unit_price

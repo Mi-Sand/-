@@ -42,6 +42,7 @@
     <button class="tab" onclick="switchTab('reorder', this)"><svg class="ic"><use href="#i-cart"></use></svg> К закупке</button>
     <button class="tab" onclick="switchTab('inventory', this)"><svg class="ic"><use href="#i-clipboard"></use></svg> Инвентаризации</button>
     <button class="tab" onclick="switchTab('expiry', this)"><svg class="ic"><use href="#i-clock"></use></svg> Сроки годности</button>
+    <button class="tab" onclick="switchTab('cost', this)"><svg class="ic"><use href="#i-ruble"></use></svg> Себестоимость</button>
 </div>
 
 <div id="controls" class="report-controls"></div>
@@ -84,6 +85,15 @@
                     <option value="180">полгода</option>
                 </select>
                 <button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Показать</button>`;
+        } else if (currentTab === 'cost') {
+            c.innerHTML = `
+                <label>Период:</label>
+                <select id="costDays">
+                    <option value="30">30 дней</option>
+                    <option value="90" selected>90 дней</option>
+                    <option value="365">год</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Показать</button>`;
         } else {
             c.innerHTML = `<button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>`;
         }
@@ -98,6 +108,7 @@
             else if (currentTab === 'reorder') await loadReorder(area);
             else if (currentTab === 'inventory') await loadInventory(area);
             else if (currentTab === 'expiry') await loadExpiry(area);
+            else if (currentTab === 'cost') await loadCost(area);
         } catch (error) {
             area.innerHTML = `<div class="error">Ошибка загрузки: ${esc(error.message)}</div>`;
         }
@@ -242,6 +253,62 @@
                         <td>${esc(r['поставщик'])}</td>
                         <td>${esc(r['документ'])}</td>
                     </tr>`).join('')}
+                </tbody>
+            </table>
+            <p style="margin-top:14px; font-size:13px; color:var(--ink-3);">
+                ${esc(data['примечание'])}
+            </p>`;
+    }
+
+    async function loadCost(area) {
+        const days = document.getElementById('costDays')?.value || 90;
+        const data = await apiCall(`/reports/production-cost/?days=${days}`);
+        const rows = data['строки'];
+
+        if (rows.length === 0) {
+            area.innerHTML = '<div class="empty">За период продукция не выпускалась.</div>';
+            return;
+        }
+
+        area.innerHTML = `
+            <div class="summary">
+                <div class="summary-card">
+                    <div class="label">Выпусков за период</div>
+                    <div class="value">${data['выпусков']}</div>
+                </div>
+                <div class="summary-card" style="border-left-color:var(--stop);">
+                    <div class="label">Дороже плана</div>
+                    <div class="value ${data['дороже_плана'] ? 'neg' : ''}">${data['дороже_плана']}</div>
+                </div>
+                <div class="summary-card" style="border-left-color:var(--warn);">
+                    <div class="label">С неполными ценами</div>
+                    <div class="value">${data['с_неполными_ценами']}</div>
+                </div>
+            </div>
+            <table>
+                <thead><tr>
+                    <th>Выпуск</th><th>Дата</th><th>Продукция</th><th>Кол-во</th>
+                    <th>Материалы, ₽</th><th>Факт, ₽/ед.</th><th>План, ₽/ед.</th>
+                    <th>Отклонение</th>
+                </tr></thead>
+                <tbody>${rows.map(r => {
+                    const dev = r['отклонение'];
+                    const pct = r['отклонение_процент'];
+                    const devText = dev === 0 ? 'в плане'
+                        : `${dev > 0 ? '+' : ''}${dev.toLocaleString('ru-RU')} ₽`
+                          + (pct === null ? '' : ` (${pct > 0 ? '+' : ''}${pct}%)`);
+                    return `
+                    <tr>
+                        <td>${esc(r['номер'])}${r['цены_полные'] ? '' : ' <span title="По части материалов не было закупок — себестоимость занижена" style="color:var(--warn);">!</span>'}</td>
+                        <td>${esc(r['дата'])}</td>
+                        <td>${esc(r['продукция'])}</td>
+                        <td>${r['количество']}</td>
+                        <td>${r['стоимость_материалов'].toLocaleString('ru-RU')}</td>
+                        <td><b>${r['себестоимость_факт'].toLocaleString('ru-RU')}</b></td>
+                        <td>${r['себестоимость_план'].toLocaleString('ru-RU')}</td>
+                        <td class="${dev > 0 ? 'neg' : (dev < 0 ? 'pos' : '')}">${devText}</td>
+                    </tr>`;
+                }).join('')}
                 </tbody>
             </table>
             <p style="margin-top:14px; font-size:13px; color:var(--ink-3);">

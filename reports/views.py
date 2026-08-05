@@ -16,6 +16,7 @@ from io import BytesIO
 from django.db.models import DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 from django.contrib.auth.decorators import login_required
+from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -308,3 +309,80 @@ def expiry_report(request):
             'графа «остаток позиции» показывает общий остаток товара, а не '
             'то, сколько осталось именно от этой партии.'),
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def production_cost_report(request):
+    """Себестоимость выпущенной продукции: фактическая против плановой.
+
+    Фактическая считается по последним закупочным ценам израсходованных
+    материалов и включает только их — без зарплаты, амортизации и
+    накладных расходов. Плановая берётся из карточки товара на момент
+    выпуска.
+
+    Параметр ?days= ограничивает период (по умолчанию 90 дней).
+    """
+    from warehouse.models import ProductionRun
+
+    try:
+        days = _int_param_simple(request.query_params.get('days'), 90)
+    except ValueError as e:
+        return Response({'error': str(e)}, status=400)
+
+    since = timezone.localdate() - timedelta(days=days)
+    runs = (ProductionRun.objects
+            .filter(created_at__date__gte=since)
+            .select_related('product', 'product_warehouse', 'created_by')
+            .prefetch_related('materials__material'))
+
+    rows = []
+    for run in runs:
+        deviation_percent = run.cost_deviation_percent
+        rows.append({
+            'номер': run.number,
+            'дата': run.created_at.strftime('%d.%m.%Y'),
+            'продукция': run.product.name,
+            'артикул': run.product.article_number,
+            'количество': float(run.quantity),
+            'стоимость_материалов': float(run.material_cost),
+            'себестоимость_факт': float(run.unit_cost),
+            'себестоимость_план': float(run.planned_unit_cost),
+            'отклонение': float(run.cost_deviation),
+            'отклонение_процент': (round(float(deviation_percent), 1)
+                                   if deviation_percent is not None else None),
+            'цены_полные': run.pricing_complete,
+            'материалы': [{
+                'материал': line.material.name,
+                'количество': float(line.quantity),
+                'цена': float(line.unit_price),
+                'сумма': float(line.total),
+                'цена_известна': line.price_known,
+            } for line in run.materials.all()],
+        })
+
+    over = [r for r in rows if r['отклонение'] > 0]
+    incomplete = [r for r in rows if not r['цены_полные']]
+
+    return Response({
+        'отчёт': 'Себестоимость производства',
+        'дата': str(timezone.localdate()),
+        'период_дней': days,
+        'выпусков': len(rows),
+        'дороже_плана': len(over),
+        'с_неполными_ценами': len(incomplete),
+        'строки': rows,
+        'примечание': (
+            'Фактическая себестоимость включает только материалы по '
+            'последним закупочным ценам. Зарплата, амортизация и накладные '
+            'расходы в неё не входят.'),
+    })
+
+
+def _int_param_simple(value, default):
+    if value in (None, ''):
+        return default
+    try:
+        return max(1, min(int(value), 3650))
+    except (TypeError, ValueError):
+        raise ValueError(f'Неверное значение параметра days: {value!r}')
