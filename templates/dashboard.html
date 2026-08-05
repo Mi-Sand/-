@@ -133,6 +133,13 @@
             </div>
             <div class="scroll" id="low-stock-items"><div class="loading">Загрузка…</div></div>
         </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2><svg class="ic"><use href="#i-clock"></use></svg> Сроки годности</h2>
+            </div>
+            <div class="scroll" id="expiry-items"><div class="loading">Загрузка…</div></div>
+        </section>
     </div>
 
     <section class="panel log">
@@ -368,6 +375,25 @@
                 </div>`).join('');
             document.getElementById('low-stock-items').innerHTML =
                 low || '<div class="empty">Все материалы в норме. Закупка не требуется.</div>';
+
+            // Партии с истекающим сроком годности
+            const expiry = data.expiry || { items: [], expired_count: 0 };
+            const expiryHtml = expiry.items.map(item => `
+                <div class="line-item">
+                    <div>
+                        <div class="who">${esc(item.name)}</div>
+                        <div class="meta">
+                            партия ${esc(item.batch)} · ${esc(item.warehouse)}
+                        </div>
+                    </div>
+                    <div class="val" style="color: ${item.expired ? 'var(--stop)' : 'var(--warn)'};">
+                        ${item.expired
+                            ? 'просрочено'
+                            : `${item.days_left} дн.`}
+                    </div>
+                </div>`).join('');
+            document.getElementById('expiry-items').innerHTML =
+                expiryHtml || '<div class="empty">Просроченных и истекающих партий нет.</div>';
 
             const moves = data.recent_movements.map(mv => `
                 <div class="line-item">

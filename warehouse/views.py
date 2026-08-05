@@ -297,7 +297,29 @@ def dashboard_summary(request):
         'low_stock_items': low_items[:10],
         'recent_movements': StockMovementSerializer(recent, many=True).data,
         'chart': chart,
+        # Партии с истекающим сроком годности: данные о сроках вводились
+        # при приходе, но до сих пор нигде не использовались
+        'expiry': _expiry_block(),
     })
+
+
+def _expiry_block():
+    """Сводка по срокам годности для главной панели."""
+    from .expiry import expiry_summary
+
+    summary = expiry_summary()
+    return {
+        'expired_count': summary['expired_count'],
+        'expiring_count': summary['expiring_count'],
+        'items': [{
+            'name': row['item_name'],
+            'batch': row['batch_number'],
+            'expiry_date': row['expiry_date'].strftime('%d.%m.%Y'),
+            'days_left': row['days_left'],
+            'expired': row['expired'],
+            'warehouse': row['warehouse'],
+        } for row in summary['items']],
+    }
 
 
 @api_view(['POST'])

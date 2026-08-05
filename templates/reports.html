@@ -41,6 +41,7 @@
     <button class="tab" onclick="switchTab('movement', this)"><svg class="ic"><use href="#i-refresh"></use></svg> Движение</button>
     <button class="tab" onclick="switchTab('reorder', this)"><svg class="ic"><use href="#i-cart"></use></svg> К закупке</button>
     <button class="tab" onclick="switchTab('inventory', this)"><svg class="ic"><use href="#i-clipboard"></use></svg> Инвентаризации</button>
+    <button class="tab" onclick="switchTab('expiry', this)"><svg class="ic"><use href="#i-clock"></use></svg> Сроки годности</button>
 </div>
 
 <div id="controls" class="report-controls"></div>
@@ -73,6 +74,16 @@
                     <option value="365">Год</option>
                 </select>
                 <button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Показать</button>`;
+        } else if (currentTab === 'expiry') {
+            c.innerHTML = `
+                <label>Предупреждать за:</label>
+                <select id="expiryDays">
+                    <option value="7">7 дней</option>
+                    <option value="30" selected>30 дней</option>
+                    <option value="90">90 дней</option>
+                    <option value="180">полгода</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Показать</button>`;
         } else {
             c.innerHTML = `<button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>`;
         }
@@ -86,6 +97,7 @@
             else if (currentTab === 'movement') await loadMovement(area);
             else if (currentTab === 'reorder') await loadReorder(area);
             else if (currentTab === 'inventory') await loadInventory(area);
+            else if (currentTab === 'expiry') await loadExpiry(area);
         } catch (error) {
             area.innerHTML = `<div class="error">Ошибка загрузки: ${esc(error.message)}</div>`;
         }
@@ -184,6 +196,57 @@
     function exportExcel() {
         // Открываем эндпоинт экспорта напрямую — браузер скачает файл
         window.location.href = '/api/reports/stock/export/';
+    }
+
+    async function loadExpiry(area) {
+        const days = document.getElementById('expiryDays')?.value || 30;
+        const data = await apiCall(`/reports/expiry/?days=${days}`);
+        const rows = data['строки'];
+
+        if (rows.length === 0) {
+            area.innerHTML = `
+                <div class="summary"><div class="summary-card">
+                    <div class="label">Партий на контроле</div>
+                    <div class="value">0</div>
+                </div></div>
+                <div class="loading">Просроченных и истекающих партий нет.</div>`;
+            return;
+        }
+
+        area.innerHTML = `
+            <div class="summary">
+                <div class="summary-card" style="border-left-color:var(--stop);">
+                    <div class="label">Просрочено</div>
+                    <div class="value neg">${data['просрочено']}</div>
+                </div>
+                <div class="summary-card" style="border-left-color:var(--warn);">
+                    <div class="label">Истекает</div>
+                    <div class="value">${data['истекает']}</div>
+                </div>
+            </div>
+            <table>
+                <thead><tr>
+                    <th>Товар</th><th>Партия</th><th>Годен до</th>
+                    <th>Осталось</th><th>Склад</th><th>Поставщик</th>
+                    <th>Документ</th>
+                </tr></thead>
+                <tbody>${rows.map(r => `
+                    <tr${r['просрочено'] ? ' style="background:var(--stop-soft);"' : ''}>
+                        <td>${esc(r['товар'])}</td>
+                        <td>${esc(r['партия'])}</td>
+                        <td>${esc(r['годен_до'])}</td>
+                        <td>${r['просрочено']
+                            ? `<span class="neg">просрочено ${Math.abs(r['дней_осталось'])} дн.</span>`
+                            : `${r['дней_осталось']} дн.`}</td>
+                        <td>${esc(r['склад'])}</td>
+                        <td>${esc(r['поставщик'])}</td>
+                        <td>${esc(r['документ'])}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+            <p style="margin-top:14px; font-size:13px; color:var(--ink-3);">
+                ${esc(data['примечание'])}
+            </p>`;
     }
 
     function showMessage(text, type) {

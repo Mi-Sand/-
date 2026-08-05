@@ -259,3 +259,52 @@ def stock_report_export(request):
         "attachment; filename=\"stock.xlsx\"; "
         "filename*=UTF-8''%D0%BE%D1%81%D1%82%D0%B0%D1%82%D0%BA%D0%B8.xlsx")
     return response
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def expiry_report(request):
+    """Партии с истекающим сроком годности.
+
+    Параметр ?days= задаёт горизонт предупреждения в днях (по умолчанию 30).
+    Просроченное показывается всегда, независимо от горизонта.
+    """
+    from warehouse.expiry import DEFAULT_WARNING_DAYS, expiring_batches
+
+    raw_days = request.query_params.get('days')
+    if raw_days in (None, ''):
+        days = DEFAULT_WARNING_DAYS
+    else:
+        try:
+            days = int(raw_days)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': f'Неверное значение параметра days: {raw_days!r}'},
+                status=400)
+        days = max(0, min(days, 365))
+
+    rows = expiring_batches(days=days)
+
+    return Response({
+        'отчёт': 'Партии с истекающим сроком годности',
+        'дата': str(datetime.now().date()),
+        'горизонт_дней': days,
+        'просрочено': sum(1 for r in rows if r['expired']),
+        'истекает': sum(1 for r in rows if not r['expired']),
+        'строки': [{
+            'товар': r['item_name'],
+            'партия': r['batch_number'],
+            'годен_до': str(r['expiry_date']),
+            'дней_осталось': r['days_left'],
+            'просрочено': r['expired'],
+            'поступило': float(r['quantity_received']),
+            'остаток_позиции': float(r['stock_remaining']),
+            'склад': r['warehouse'],
+            'поставщик': r['supplier'],
+            'документ': r['document'],
+        } for r in rows],
+        'примечание': (
+            'Остатки ведутся по позиции склада, а не по партиям, поэтому '
+            'графа «остаток позиции» показывает общий остаток товара, а не '
+            'то, сколько осталось именно от этой партии.'),
+    })
