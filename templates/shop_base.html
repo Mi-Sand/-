@@ -45,10 +45,11 @@
         .container { max-width: 1180px; margin: 0 auto; padding: 0 22px; width: 100%; }
 
         /* --- Шапка ----------------------------------------------------- */
-        header {
-            background: var(--slate-900); color: #fff;
-            position: sticky; top: 0; z-index: 900;
-        }
+        /* Прилипает шапка целиком, вместе с меню разделов: раньше липкой
+           была только верхняя полоса, а меню уезжало вверх, и с середины
+           страницы перейти в другой раздел было нечем. */
+        .site-head { position: sticky; top: 0; z-index: 900; }
+        header { background: var(--slate-900); color: #fff; }
         .head-row {
             display: flex; align-items: center; justify-content: space-between;
             gap: 20px; padding: 16px 0;
@@ -258,10 +259,18 @@
         }
         @media (max-width: 620px) {
             .container { padding: 0 16px; }
-            .head-row { padding: 13px 0; gap: 12px; }
-            header h1 { font-size: 16px; }
-            header .sub { display: none; }
-            .brand-mark { width: 36px; height: 36px; }
+            /* Шапка прилипшая, поэтому на телефоне она отъедает экран
+               навсегда. Оставляем в ней только название и меню: род
+               деятельности и село есть в подвале и на страницах, а
+               место под товар дороже. */
+            .head-row { padding: 11px 0; gap: 12px; }
+            header .eyebrow {
+                font-family: var(--sans); font-size: 15px; font-weight: 620;
+                letter-spacing: -.01em; text-transform: none; color: #fff;
+            }
+            header .eyebrow .where { display: none; }
+            header h1, header .sub { display: none; }
+            .brand-mark { width: 34px; height: 34px; }
             /* На узком экране у кнопки остаётся значок и счётчик:
                слово «Корзина» съедало строку с названием магазина. */
             .cart-btn { padding: 9px 11px; }
@@ -283,12 +292,14 @@
 <body>
     {% include '_icons.html' %}
 
+    <div class="site-head">
     <header>
         <div class="container head-row">
             <a class="brand" href="{% url 'shop-page' %}">
                 <span class="brand-mark"><svg><use href="#i-factory"></use></svg></span>
                 <div>
-                    <span class="eyebrow">{{ company.short_name }} · {{ company.city }}</span>
+                    <span class="eyebrow">{{ company.short_name }}<span
+                        class="where"> · {{ company.city }}</span></span>
                     <h1>{{ company.tagline }}</h1>
                     <p class="sub">Собственное производство. Цены и наличие — со склада.</p>
                 </div>
@@ -314,6 +325,7 @@
                 <svg class="ic"><use href="#i-pin"></use></svg>Контакты</a>
         </div>
     </nav>
+    </div>
 
     <main>{% block content %}{% endblock %}</main>
 
