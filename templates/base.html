@@ -102,6 +102,57 @@
             box.textContent = value ?? '';
             return box.innerHTML;
         }
+
+        // На телефоне строка таблицы показывается карточкой: подпись
+        // столбца слева, значение справа. Подпись берётся из шапки и
+        // проставляется здесь, а не в разметке каждой страницы: таблицы
+        // собираются скриптами в десятке разделов, и вписывать подписи
+        // руками в каждую — значит однажды забыть.
+        function labelTableCells(root) {
+            const scope = root && root.querySelectorAll ? root : document;
+            scope.querySelectorAll('table').forEach(table => {
+                const heads = Array.from(table.querySelectorAll('thead th'))
+                    .map(th => th.textContent.trim());
+                if (!heads.length) return;
+                table.querySelectorAll('tbody tr').forEach(row => {
+                    const cells = row.children;
+                    // Строка-заглушка вроде «ничего не найдено» занимает
+                    // всю ширину: подпись столбца ей ни к чему.
+                    if (cells.length === 1 && cells[0].colSpan > 1) {
+                        cells[0].classList.add('no-label');
+                        return;
+                    }
+                    for (let i = 0; i < cells.length; i++) {
+                        if (heads[i] !== undefined) {
+                            cells[i].setAttribute('data-label', heads[i]);
+                        } else {
+                            cells[i].classList.add('no-label');
+                        }
+                    }
+                });
+            });
+        }
+
+        // Таблицы перерисовываются после каждой загрузки данных, поэтому
+        // подписи проставляем не один раз, а при каждом изменении
+        // страницы. Пересчёт откладывается до конца кадра: за одну
+        // перерисовку изменений приходит много, а работа нужна одна.
+        (function watchTables() {
+            let planned = false;
+            const relabel = () => {
+                planned = false;
+                labelTableCells(document);
+            };
+            const observer = new MutationObserver(() => {
+                if (planned) return;
+                planned = true;
+                requestAnimationFrame(relabel);
+            });
+            document.addEventListener('DOMContentLoaded', () => {
+                labelTableCells(document);
+                observer.observe(document.body, {childList: true, subtree: true});
+            });
+        })();
     </script>
     <style>
         /* ============================================================
@@ -561,8 +612,58 @@
             .rail-nav .group { display: none; }
             .rail-nav a { white-space: nowrap; }
             .rail-nav a.active::before { display: none; }
-            .sheet { padding: 16px 14px 32px; }
+            /* Снизу оставлен запас: там висит круглая кнопка чата, и без
+               запаса она накрывала последнюю строку таблицы. */
+            .sheet { padding: 16px 14px 96px; }
             .topbar { padding: 0 14px; }
+        }
+
+        /* ---------- Таблицы на телефоне ----------
+           Таблица на десяток столбцов в 390 пикселей не влезает никак.
+           Прокрутка вбок здесь не годится: таблица растягивала страницу
+           целиком — уезжала шапка, а половина столбцов оставалась за
+           краем и про них никто не знал.
+
+           Поэтому строка превращается в карточку: подпись столбца слева,
+           значение справа. Подписи берутся из шапки таблицы и
+           проставляются скриптом, поэтому это работает во всех разделах
+           сразу и не требует правки каждой страницы. */
+        @media (max-width: 720px) {
+            table, table tbody, table tr, table td { display: block; width: 100%; }
+            table thead { display: none; }
+            table tr {
+                background: var(--surface); border: 1px solid var(--line);
+                border-radius: var(--r); margin-bottom: 10px; overflow: hidden;
+            }
+            table tbody tr:hover { background: var(--surface); }
+            /* Подпись выведена из потока и прижата влево, значение течёт
+               обычным блоком справа. Через флекс не выходит: в ячейке
+               бывает несколько кусков («150» и «шт.»), и флекс растащил
+               бы их по разным краям. */
+            table td {
+                display: block; position: relative;
+                padding: 9px 13px 9px 46%; text-align: right;
+                border-bottom: 1px solid var(--line); min-height: 40px;
+            }
+            table td:last-child { border-bottom: none; }
+            table td::before {
+                content: attr(data-label);
+                position: absolute; left: 13px; top: 9px; width: 42%;
+                font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+                letter-spacing: .08em; text-transform: uppercase;
+                color: var(--ink-3); text-align: left;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            /* Ячейка без подписи (строка «ничего не найдено», кнопки
+               действий) занимает всю ширину. */
+            table td[data-label=""], table td.no-label,
+            table td:has(.row-actions) { padding-left: 13px; }
+            table td[data-label=""]::before,
+            table td.no-label::before,
+            table td:has(.row-actions)::before { content: none; }
+            table td .row-actions { justify-content: flex-end; }
+            /* Кнопки действий — под палец. */
+            table .act { width: 40px; height: 40px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
