@@ -79,7 +79,14 @@
             border-bottom: 3px solid var(--mark);
             background: var(--slate-900);
         }
-        .nav-row { display: flex; gap: 2px; overflow-x: auto; }
+        /* Меню прокручивается вбок на узком экране, но полосу прокрутки
+           не показывает: на широком она рисовалась поверх охряной черты
+           и выглядела мусором. */
+        .nav-row {
+            display: flex; gap: 2px; overflow-x: auto;
+            scrollbar-width: none; -ms-overflow-style: none;
+        }
+        .nav-row::-webkit-scrollbar { display: none; }
         .nav a {
             display: inline-flex; align-items: center; gap: 7px;
             padding: 12px 15px; color: #94A9B8; text-decoration: none;
@@ -315,9 +322,9 @@
             <div class="foot-row">
                 <div>
                     <h4>Производство</h4>
-                    <p>{{ company.short_name }} — изготовление спортивного инвентаря
-                       и экипировки: макивары, боксёрские перчатки, мячи,
-                       снаряды для залов и секций.</p>
+                    <p>{{ company.short_name }} — производство спортивных
+                       товаров и инвентаря: мячи, оборудование для
+                       единоборств, спортивные комплексы, тренажёры.</p>
                 </div>
                 <div>
                     <h4>Контакты</h4>

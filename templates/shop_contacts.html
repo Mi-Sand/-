@@ -2,10 +2,37 @@
 {% block title %}Контакты — {{ company.short_name }}{% endblock %}
 
 {% block styles %}
-        /* Схема проезда. Нарисована прямо в странице, а не подгружается
-           картами: сервер стоит в сети предприятия и наружу не ходит, а
-           встроенная карта без интернета показала бы серый прямоугольник.
-           Схема — вектор: остаётся чёткой при любом увеличении и печати. */
+        /* Карта. Встроена картами Яндекса: виджет принимает адрес строкой,
+           ключ ему не нужен. Загружает её браузер покупателя, а не сервер,
+           поэтому изоляции сети предприятия это не мешает.
+
+           Ниже остаётся нарисованная схема проезда. Она не запасной
+           вариант «на всякий случай», а самостоятельная вещь: показывает
+           направление от Москвы целиком, а на изолированной машине —
+           единственное, что вообще отрисуется. */
+        .map-embed {
+            position: relative; border: 1px solid var(--line);
+            border-radius: var(--r); overflow: hidden;
+            background: var(--surface-alt); margin-top: 4px;
+        }
+        .map-embed iframe {
+            display: block; width: 100%; height: 380px; border: 0;
+            position: relative; z-index: 1;
+        }
+        /* Пояснение стоит ПОД картой, а не за ней. Накрыть его картой
+           нельзя: браузер рисует в неудавшейся рамке свою страницу ошибки
+           и закрывает всё, что лежит ниже, — получается ровно тот серый
+           прямоугольник, от которого хотелось уйти. */
+        .map-fallback {
+            display: flex; gap: 10px; align-items: flex-start;
+            margin-top: 10px; font-size: 12.5px; color: var(--ink-3);
+        }
+        .map-fallback .ic { color: var(--ink-3); margin-top: 1px; }
+        /* Когда браузер знает, что сети нет, рамку не показываем вовсе. */
+        .map-embed.offline { display: none; }
+
+        /* Схема проезда — вектор: остаётся чёткой при любом увеличении
+           и на печати. */
         .map-box {
             background: var(--surface-alt); border: 1px solid var(--line);
             border-radius: var(--r); padding: 10px; margin-top: 4px;
@@ -60,11 +87,44 @@
 
     <div class="cols cols-side">
 
+        <div>
         <div class="panel">
-            <h3><svg class="ic"><use href="#i-pin"></use></svg>Схема проезда</h3>
-            <p>{{ company.city }} стоит на Дмитровском шоссе, примерно
-               в 50 км к северу от МКАД. Доехать можно на машине или
-               электричкой с Савёловского вокзала.</p>
+            <h3><svg class="ic"><use href="#i-pin"></use></svg>Мы на карте</h3>
+            <p>{{ company.address_full }}</p>
+
+            <div class="map-embed" id="mapEmbed">
+                <iframe
+                    src="https://yandex.ru/map-widget/v1/?text={{ company.address_full|urlencode }}&amp;z=16"
+                    title="Карта: {{ company.address_full }}"
+                    loading="lazy" allowfullscreen></iframe>
+            </div>
+            <div class="map-fallback">
+                <svg class="ic"><use href="#i-info"></use></svg>
+                <span>Карту показывает Яндекс, её загружает ваш браузер.
+                      Без доступа в интернет она не откроется — тогда
+                      смотрите схему проезда ниже, она нарисована в самой
+                      странице и работает всегда.</span>
+            </div>
+
+            {% if company.has_coords %}
+            <a class="btn-line" style="width:100%; margin-top:12px;"
+               href="https://yandex.ru/maps/?pt={{ company.coords }}&amp;z=17&amp;l=map"
+               target="_blank" rel="noopener">
+                <svg class="ic"><use href="#i-external"></use></svg>Построить маршрут</a>
+            {% else %}
+            <a class="btn-line" style="width:100%; margin-top:12px;"
+               href="https://yandex.ru/maps/?text={{ company.address_full|urlencode }}"
+               target="_blank" rel="noopener">
+                <svg class="ic"><use href="#i-external"></use></svg>Построить маршрут</a>
+            {% endif %}
+        </div>
+
+        <div class="panel">
+            <h3><svg class="ic"><use href="#i-truck"></use></svg>Схема проезда</h3>
+            <p>{{ company.city }} — в Дмитровском округе, примерно
+               в 50 км к северу от МКАД по Дмитровскому шоссе. Доехать
+               можно на машине или электричкой с Савёловского вокзала
+               до Дмитрова.</p>
 
             <div class="map-box">
                 <!-- Схема нарисована в координатах 800×470 и тянется по
@@ -72,7 +132,8 @@
                      обычной карте. -->
                 <svg viewBox="0 0 800 470" role="img"
                      aria-label="Схема проезда: от Москвы по Дмитровскому шоссе
-                                 через Яхрому до Дмитрова, примерно 50 километров от МКАД">
+                                 через Яхрому и Дмитров до {{ company.city }},
+                                 примерно 50 километров от МКАД">
 
                     <rect x="0" y="0" width="800" height="470" rx="6" fill="#fff"/>
 
@@ -120,7 +181,13 @@
                           font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
                         Яхрома</text>
 
-                    <!-- Дмитров: точка назначения -->
+                    <!-- Дмитров: ориентир на маршруте -->
+                    <circle cx="356" cy="150" r="6" fill="#55697A"/>
+                    <text x="376" y="155" fill="#55697A" font-size="14"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        Дмитров</text>
+
+                    <!-- Точка назначения: площадка предприятия -->
                     <circle cx="356" cy="92" r="15" fill="#B23A32" opacity=".14"/>
                     <circle cx="356" cy="92" r="8" fill="#B23A32"/>
                     <circle cx="356" cy="92" r="3" fill="#fff"/>
@@ -129,7 +196,7 @@
                         {{ company.city }}</text>
                     <text x="382" y="108" fill="#55697A" font-size="13.5"
                           font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
-                        {% if company.has_street %}{{ company.street }}{% else %}Производство и склад{% endif %}</text>
+                        Производство и склад{% if company.has_street %}, {{ company.street }}{% endif %}</text>
 
                     <!-- Подписи путей -->
                     <text x="150" y="330" fill="#B4700F" font-size="13" font-weight="600"
@@ -163,6 +230,7 @@
                 <span>Схема показывает направление, а не точный масштаб.
                       Расстояние и время в пути — ориентировочные.</span>
             </div>
+        </div>
         </div>
 
         <div>
@@ -215,12 +283,6 @@
                     </div>
                 </div>
 
-                {% if company.has_coords %}
-                <a class="btn-line" style="width:100%; margin-top:16px;"
-                   href="https://yandex.ru/maps/?pt={{ company.coords }}&z=16&l=map"
-                   target="_blank" rel="noopener">
-                    <svg class="ic"><use href="#i-external"></use></svg>Открыть в Яндекс.Картах</a>
-                {% endif %}
             </div>
 
             <div class="panel">
@@ -270,4 +332,19 @@
     {% endif %}
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Если браузер сам знает, что сети нет, рамку с картой убираем: пустая
+    // рамка со страницей ошибки внутри выглядит поломкой, а объяснение и
+    // схема проезда рядом никуда не денутся.
+    //
+    // Проверка грубая: браузер считает себя «в сети» и когда подключён
+    // только к сети предприятия. Поэтому она не заменяет пояснение под
+    // картой, а лишь убирает совсем очевидный случай.
+    if (navigator.onLine === false) {
+        document.getElementById('mapEmbed').classList.add('offline');
+    }
+</script>
 {% endblock %}

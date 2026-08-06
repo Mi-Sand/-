@@ -52,10 +52,15 @@ class PublicPagesTest(TestCase):
         self.assertIn('Дмитровское шоссе', body)
 
     def test_no_external_resources(self):
-        """Ни одна страница не тянет ничего из интернета.
+        """Оформление страницы не зависит от интернета.
 
-        Шрифт, картинка или скрипт со стороннего адреса на изолированном
-        сервере просто не загрузится, и страница поедет.
+        Шрифт, стиль, скрипт или картинка со стороннего адреса на
+        изолированном сервере не загрузятся, и страница поедет. Всё, что
+        отвечает за вид и работу страницы, лежит в проекте.
+
+        Единственное исключение — встроенная карта: она сознательно
+        вынесена в отдельную рамку, и её отсутствие ничего не ломает,
+        см. test_map_failure_does_not_break_page.
         """
         for name in PUBLIC_PAGES:
             body = self.client.get(reverse(name)).content.decode()
@@ -63,6 +68,33 @@ class PublicPagesTest(TestCase):
                         '<img src="http', "@import url('http"):
                 with self.subTest(page=name, tag=tag):
                     self.assertNotIn(tag, body)
+
+    def test_map_is_embedded(self):
+        """Карта встроена в страницу, а не только ссылкой наружу."""
+        body = self.client.get(reverse('shop-contacts')).content.decode()
+        self.assertIn('<iframe', body)
+        self.assertIn('map-widget', body)
+
+    def test_map_failure_does_not_break_page(self):
+        """Если карта не загрузится, покупатель не увидит пустую рамку.
+
+        Карту рисует браузер покупателя, обращаясь к Яндексу. Там, где
+        интернета нет, вместо неё должен остаться адрес и объяснение —
+        поэтому подпись лежит в разметке всегда, а не подставляется
+        скриптом при ошибке загрузки.
+        """
+        body = self.client.get(reverse('shop-contacts')).content.decode()
+        self.assertIn('map-fallback', body)
+        self.assertIn('Без доступа в интернет', body)
+        # Схема проезда нарисована в самой странице и не зависит от карты
+        self.assertIn('<svg viewBox="0 0 800 470"', body)
+
+    def test_iframe_only_on_contacts(self):
+        """Внешняя рамка есть только там, где нужна карта."""
+        for name in ['shop-page', 'shop-about', 'shop-delivery']:
+            with self.subTest(page=name):
+                body = self.client.get(reverse(name)).content.decode()
+                self.assertNotIn('<iframe', body)
 
 
 class CompanyInfoTest(TestCase):
@@ -81,11 +113,27 @@ class CompanyInfoTest(TestCase):
                 self.assertNotIn(FILL, body)
 
     def test_address_built_without_empty_parts(self):
-        """Незаполненная улица не оставляет висящую запятую."""
+        """Незаполненная часть адреса не оставляет висящую запятую."""
         data = company_context(None)['company']
         self.assertNotIn(FILL, data['address_full'])
         self.assertFalse(data['address_full'].strip().endswith(','))
-        self.assertIn('Дмитров', data['address_full'])
+        self.assertNotIn(', ,', data['address_full'])
+        # Область, округ, село и дом — в таком порядке
+        self.assertIn('Московская область', data['address_full'])
+        self.assertIn('Синьково', data['address_full'])
+
+    def test_address_skips_missing_district(self):
+        """Без округа адрес всё равно собирается связно."""
+        from warehouse import shop_info
+        original = dict(shop_info.COMPANY)
+        shop_info.COMPANY['district'] = FILL
+        try:
+            data = company_context(None)['company']
+            self.assertNotIn(FILL, data['address_full'])
+            self.assertNotIn(', ,', data['address_full'])
+        finally:
+            shop_info.COMPANY.clear()
+            shop_info.COMPANY.update(original)
 
     def test_filled_contacts_are_shown(self):
         """Когда контакты заполнены, они попадают на страницу."""
