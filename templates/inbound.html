@@ -344,10 +344,13 @@
             const suppliers = await apiCallAll('/suppliers/');
             const warehouses = await apiCallAll('/warehouses/');
             
-            const supplierHtml = suppliers.map(s => 
+            // apiCallAll возвращает готовый массив записей, а не ответ
+            // API целиком: страницы она уже прошла и склеила. Обращение
+            // к .results давало undefined и роняло окно.
+            const supplierHtml = suppliers.map(s =>
                 `<option value="${s.id}">${esc(s.name)}</option>`
             ).join('');
-            const warehouseHtml = warehouses.results.map(w => 
+            const warehouseHtml = warehouses.map(w =>
                 `<option value="${w.id}">${esc(w.name)}</option>`
             ).join('');
             
