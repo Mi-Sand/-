@@ -12,6 +12,12 @@
     .report-controls { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
     .report-controls input, .report-controls select {
         padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 14px; }
+    /* Поля по умолчанию занимают всю ширину — это верно для форм, но в
+       строке управления отчётом список расталкивал кнопки на отдельные
+       строки. Ширину здесь определяет содержимое. */
+    .report-controls input, .report-controls select { width: auto; }
+    .report-controls select { min-width: 180px; }
+    .report-controls label { color: var(--ink-2); font-size: 13px; }
     .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; }
     .btn-primary { background: var(--slate-800); color: white; }
     .btn-primary:hover { background: var(--slate-900); }
@@ -50,6 +56,13 @@
 
 <script>
     let currentTab = 'stock';
+    // Какой вид номенклатуры показывать в остатках: all, material, product
+    let stockKind = 'all';
+
+    function onStockKindChange() {
+        stockKind = document.getElementById('stockKind').value;
+        loadReport();
+    }
 
     function switchTab(tab, el) {
         currentTab = tab;
@@ -62,9 +75,19 @@
     function renderControls() {
         const c = document.getElementById('controls');
         if (currentTab === 'stock') {
+            // Сырьё и готовые изделия считают разные люди: снабженец
+            // смотрит материалы, сбыт — продукцию. Отбор сохраняется
+            // между обновлениями страницы, чтобы не выбирать заново.
             c.innerHTML = `
+                <label>Показать:</label>
+                <select id="stockKind" onchange="onStockKindChange()">
+                    <option value="all">Всё вместе</option>
+                    <option value="material">Только материалы</option>
+                    <option value="product">Только продукцию</option>
+                </select>
                 <button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
                 <button class="btn btn-excel" onclick="exportExcel()"><svg class="ic"><use href="#i-inbound"></use></svg> Выгрузить в Excel</button>`;
+            document.getElementById('stockKind').value = stockKind;
         } else if (currentTab === 'movement') {
             c.innerHTML = `
                 <label>Период (дней назад):</label>
@@ -115,23 +138,53 @@
     }
 
     async function loadStock(area) {
-        const data = await apiCall('/reports/stock/');
+        const data = await apiCall(`/reports/stock/?kind=${stockKind}`);
         const rows = data['строки'] || [];
-        if (rows.length === 0) { area.innerHTML = '<div class="empty">Нет остатков на складах</div>'; return; }
+        if (rows.length === 0) {
+            const empty = {
+                material: 'Нет материалов с остатком',
+                product: 'Нет продукции с остатком',
+                all: 'Нет остатков на складах',
+            };
+            area.innerHTML = `<div class="empty">${empty[stockKind] || empty.all}</div>`;
+            return;
+        }
+
+        // Столбцы, которые при выбранном виде несут одно и то же во всех
+        // строках, не показываем: «Тип» при отборе по виду и «Размер»
+        // у материалов, которых размер вообще не касается.
+        const showType = stockKind === 'all';
+        const showSize = stockKind !== 'material';
+
+        const head = ['<th>Склад</th>']
+            .concat(showType ? ['<th>Тип</th>'] : [])
+            .concat(['<th>Наименование</th>', '<th>Артикул</th>'])
+            .concat(showSize ? ['<th>Размер</th>'] : [])
+            .concat(['<th>Цвет</th>', '<th>Количество</th>', '<th>Ед.</th>'])
+            .join('');
+
+        const label = {
+            material: 'Позиций материалов с остатком',
+            product: 'Позиций продукции с остатком',
+            all: 'Всего позиций с остатком',
+        };
+
         area.innerHTML = `
             <div class="summary"><div class="summary-card">
-                <div class="label">Всего позиций с остатком</div>
+                <div class="label">${label[stockKind] || label.all}</div>
                 <div class="value">${data['всего_позиций']}</div>
             </div></div>
-            <table><thead><tr>
-                <th>Склад</th><th>Тип</th><th>Наименование</th><th>Артикул</th>
-                <th>Размер</th><th>Цвет</th><th>Количество</th><th>Ед.</th>
-            </tr></thead><tbody>
-                ${rows.map(r => `<tr>
-                    <td>${r['склад']}</td><td>${r['тип']}</td><td>${r['наименование']}</td>
-                    <td>${r['артикул']}</td><td>${r['размер']}</td><td>${r['цвет']}</td>
-                    <td>${r['количество']}</td><td>${r['единица']}</td>
-                </tr>`).join('')}
+            <table><thead><tr>${head}</tr></thead><tbody>
+                ${rows.map(r => '<tr>'
+                    + `<td>${esc(r['склад'])}</td>`
+                    + (showType ? `<td>${esc(r['тип'])}</td>` : '')
+                    + `<td>${esc(r['наименование'])}</td>`
+                    + `<td class="mono">${esc(r['артикул'])}</td>`
+                    + (showSize ? `<td>${esc(r['размер'])}</td>` : '')
+                    + `<td>${esc(r['цвет'])}</td>`
+                    + `<td class="mono">${r['количество']}</td>`
+                    + `<td>${esc(r['единица'])}</td>`
+                    + '</tr>').join('')}
             </tbody></table>`;
     }
 
@@ -205,8 +258,9 @@
     }
 
     function exportExcel() {
-        // Открываем эндпоинт экспорта напрямую — браузер скачает файл
-        window.location.href = '/api/reports/stock/export/';
+        // Открываем эндпоинт экспорта напрямую — браузер скачает файл.
+        // Отбор передаём тот же: в файле должно быть ровно то, что на экране.
+        window.location.href = `/api/reports/stock/export/?kind=${stockKind}`;
     }
 
     async function loadExpiry(area) {

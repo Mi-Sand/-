@@ -12,6 +12,7 @@
 """
 from datetime import datetime, timedelta
 from io import BytesIO
+from urllib.parse import quote
 
 from django.db.models import DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
@@ -25,38 +26,92 @@ from warehouse.models import Material, Stock, StockMovement, Product
 from inventory.models import Inventory
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def stock_report(request):
-    """Остатки на дату: текущие остатки всех товаров по складам."""
-    date = request.query_params.get('date', datetime.now().date())
-    warehouse_id = request.query_params.get('warehouse')
+#: Что показывать в отчёте об остатках. Материалы и продукция живут по
+#: разным правилам: у материала нет размера, у продукции нет единицы
+#: измерения кроме штук, — и смотрят на них разные люди. Снабженец
+#: считает сырьё, а сбыт — готовые изделия.
+STOCK_KINDS = ('all', 'material', 'product')
 
+DASH = '—'
+
+
+def _stock_rows(stocks):
+    """Строки отчёта об остатках.
+
+    Одна и та же сборка нужна и странице, и выгрузке в Excel. Раньше
+    они были написаны порознь, и одинаковая ошибка сидела в обеих:
+    артикул и цвет брались только у продукции, а у материала
+    подставлялся прочерк — хотя оба поля у материала есть и заполняются
+    в справочнике.
+    """
+    rows = []
+    for stock in stocks:
+        item = stock.material or stock.product
+        if item is None:
+            # Остаток без товара — испорченная строка, в отчёт не берём
+            continue
+        is_material = stock.material is not None
+        rows.append({
+            'склад': stock.warehouse.name,
+            'тип': 'Материал' if is_material else 'Продукция',
+            'наименование': item.name,
+            'артикул': item.article_number or DASH,
+            # Размер есть только у продукции: материал меряют не им,
+            # а единицей измерения — метрами, килограммами.
+            'размер': DASH if is_material else (item.size or DASH),
+            'цвет': item.color or DASH,
+            'количество': float(stock.quantity),
+            'единица': item.get_unit_display() if is_material else 'шт.',
+        })
+    return rows
+
+
+def _stock_queryset(request):
+    """Остатки с учётом отбора по складу и виду номенклатуры.
+
+    Читает параметры через request.GET, а не query_params: выгрузка в
+    Excel — обычное представление Django, у неё query_params нет, и
+    обращение к нему роняло скачивание файла.
+    """
+    params = request.GET
     stocks = Stock.objects.select_related('warehouse', 'material', 'product')
 
+    warehouse_id = params.get('warehouse')
     if warehouse_id:
         stocks = stocks.filter(warehouse_id=warehouse_id)
 
-    stocks = stocks.filter(quantity__gt=0)
+    kind = params.get('kind', 'all')
+    if kind not in STOCK_KINDS:
+        kind = 'all'
+    if kind == 'material':
+        stocks = stocks.filter(material__isnull=False)
+    elif kind == 'product':
+        stocks = stocks.filter(product__isnull=False)
 
-    rows = []
-    for stock in stocks:
-        material = stock.material
-        product = stock.product
+    return stocks.filter(quantity__gt=0), kind
 
-        rows.append({
-            'склад': stock.warehouse.name,
-            'тип': 'Материал' if material else 'Продукция',
-            'наименование': material.name if material else product.name,
-            'артикул': product.article_number if product else '—',
-            'размер': product.size if product else '—',
-            'цвет': product.color if product else '—',
-            'количество': float(stock.quantity),
-            'единица': material.get_unit_display() if material else 'шт.',
-        })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def stock_report(request):
+    """Остатки на дату: текущие остатки по складам.
+
+    Параметр kind делит отчёт: material — только сырьё, product —
+    только готовые изделия, all (по умолчанию) — всё вместе.
+    """
+    date = request.query_params.get('date', datetime.now().date())
+    stocks, kind = _stock_queryset(request)
+    rows = _stock_rows(stocks)
+
+    titles = {
+        'material': 'Остатки материалов',
+        'product': 'Остатки продукции',
+        'all': 'Остатки на дату',
+    }
 
     return Response({
-        'отчёт': 'Остатки на дату',
+        'отчёт': titles.get(kind, titles['all']),
+        'вид': kind if kind in STOCK_KINDS else 'all',
         'дата': date,
         'всего_позиций': len(rows),
         'строки': rows,
@@ -198,14 +253,21 @@ def stock_report_export(request):
         from django.http import HttpResponse
         return HttpResponse('Библиотека openpyxl не установлена', status=400)
 
-    # Получить данные отчёта
-    stocks = Stock.objects.select_related(
-        'warehouse', 'material', 'product').filter(quantity__gt=0)
+    # Данные собираются той же функцией, что и для страницы: выгрузка
+    # должна показывать ровно то, что человек видел на экране.
+    stocks, kind = _stock_queryset(request)
+    rows = _stock_rows(stocks)
+
+    sheet_titles = {
+        'material': 'Материалы',
+        'product': 'Продукция',
+        'all': 'Остатки',
+    }
 
     # Создать книгу
     workbook = openpyxl.Workbook()
     worksheet = workbook.active
-    worksheet.title = 'Остатки'
+    worksheet.title = sheet_titles.get(kind, sheet_titles['all'])
 
     # Заголовок
     headers = ['Склад', 'Тип', 'Наименование', 'Артикул', 'Размер',
@@ -220,18 +282,10 @@ def stock_report_export(request):
         cell.fill = header_fill
 
     # Данные
-    for stock in stocks:
-        material = stock.material
-        product = stock.product
+    for row in rows:
         worksheet.append([
-            stock.warehouse.name,
-            'Материал' if material else 'Продукция',
-            material.name if material else product.name,
-            product.article_number if product else '—',
-            product.size if product else '—',
-            product.color if product else '—',
-            float(stock.quantity),
-            material.get_unit_display() if material else 'шт.',
+            row['склад'], row['тип'], row['наименование'], row['артикул'],
+            row['размер'], row['цвет'], row['количество'], row['единица'],
         ])
 
     # Установить ширину столбцов
@@ -255,10 +309,18 @@ def stock_report_export(request):
         buffer.getvalue(),
         content_type='application/vnd.openxmlformats-officedocument'
                      '.spreadsheetml.sheet')
-    # Имя файла латиницей в filename + кириллица в filename* (RFC 5987)
+    # Имя файла говорит, что внутри: три выгрузки в одной папке иначе
+    # неразличимы. Латиницей в filename + кириллица в filename* (RFC 5987).
+    ascii_names = {'material': 'materials', 'product': 'products',
+                   'all': 'stock'}
+    ru_names = {'material': 'остатки-материалов',
+                'product': 'остатки-продукции',
+                'all': 'остатки'}
+    ascii_name = ascii_names.get(kind, ascii_names['all'])
+    ru_name = quote(ru_names.get(kind, ru_names['all']))
     response['Content-Disposition'] = (
-        "attachment; filename=\"stock.xlsx\"; "
-        "filename*=UTF-8''%D0%BE%D1%81%D1%82%D0%B0%D1%82%D0%BA%D0%B8.xlsx")
+        f'attachment; filename="{ascii_name}.xlsx"; '
+        f"filename*=UTF-8''{ru_name}.xlsx")
     return response
 
 
