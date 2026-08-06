@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ company.short_name }}{% endblock %}</title>
+    <style>
+        /* Публичные страницы ООО «ЛЕКО». Оформление продолжает язык учётной
+           системы: графитовый сланец и охра складской разметки. Товар и
+           текст показаны крупно на белом, всё остальное подчёркнуто тихое —
+           покупатель пришёл смотреть изделия, а не интерфейс.
+
+           Здесь только то, что общее для всех страниц: переменные, шапка,
+           меню, подвал, кнопки, типографика. Оформление витрины лежит в
+           самой витрине. */
+        :root {
+            --canvas: var(--line); --surface: #fff; --surface-alt: #F7F9FA;
+            --slate-900: #12202B; --slate-800: #1B2E3D; --slate-700: #26404F;
+            --ink: #16232D; --ink-2: #55697A; --ink-3: #8496A5;
+            --line: #DCE3E8; --line-strong: #C3CED6;
+            --mark: #D98A1F; --mark-dark: #B4700F;
+            --ok: #1F7A4C; --ok-soft: #E7F4ED;
+            --stop: #B23A32; --stop-soft: #FBEBEA;
+            --r: 6px; --r-lg: 10px;
+            --sans: "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+            --mono: "JetBrains Mono", "SF Mono", "Consolas", "DejaVu Sans Mono", monospace;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--sans); font-size: 14px; line-height: 1.5;
+            background: var(--canvas); color: var(--ink);
+            -webkit-font-smoothing: antialiased;
+            display: flex; flex-direction: column; min-height: 100vh;
+        }
+        /* Числа — моноширинным с табличными цифрами: цены выстраиваются
+           в столбец и не пляшут при смене разряда. Принцип общий со всей
+           системой учёта. */
+        .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+        .ic    { width: 18px; height: 18px; display: inline-block; vertical-align: -3.5px; flex: none; }
+        .ic-sm { width: 14px; height: 14px; vertical-align: -2.5px; }
+        .ic-lg { width: 22px; height: 22px; vertical-align: -5px; }
+        a { color: var(--slate-700); }
+        a:hover { color: var(--mark-dark); }
+
+        .container { max-width: 1180px; margin: 0 auto; padding: 0 22px; width: 100%; }
+
+        /* --- Шапка ----------------------------------------------------- */
+        header {
+            background: var(--slate-900); color: #fff;
+            position: sticky; top: 0; z-index: 900;
+        }
+        .head-row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 20px; padding: 16px 0;
+        }
+        .brand {
+            display: flex; align-items: center; gap: 13px; min-width: 0;
+            color: inherit; text-decoration: none;
+        }
+        /* Марка предприятия вместо картинки-логотипа: тот же графит и охра,
+           что и в учётной системе, — витрина и склад читаются как одно. */
+        .brand-mark {
+            width: 42px; height: 42px; flex: none; border-radius: var(--r);
+            border: 1px solid rgba(255,255,255,.2);
+            background: rgba(255,255,255,.07); color: var(--mark);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .brand-mark .ic { width: 22px; height: 22px; vertical-align: 0; }
+        header .eyebrow {
+            font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em;
+            text-transform: uppercase; color: var(--mark); display: block;
+        }
+        header h1 { font-size: 19px; font-weight: 640; letter-spacing: -.02em; margin-top: 2px; }
+        header .sub { color: #94A9B8; font-size: 12.5px; margin-top: 2px; }
+
+        /* --- Меню разделов ---------------------------------------------- */
+        .nav {
+            border-top: 1px solid rgba(255,255,255,.1);
+            border-bottom: 3px solid var(--mark);
+            background: var(--slate-900);
+        }
+        .nav-row { display: flex; gap: 2px; overflow-x: auto; }
+        .nav a {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 12px 15px; color: #94A9B8; text-decoration: none;
+            font-size: 13.5px; font-weight: 550; white-space: nowrap;
+            border-bottom: 2px solid transparent; margin-bottom: -2px;
+            transition: color .12s, border-color .12s;
+        }
+        .nav a:hover { color: #fff; }
+        /* Текущий раздел отмечен охрой — тем же цветом, которым в системе
+           учёта отмечено действие. */
+        .nav a.on { color: #fff; border-bottom-color: var(--mark); }
+        .nav a .ic { color: currentColor; }
+
+        .cart-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,.09); color: #fff;
+            border: 1px solid rgba(255,255,255,.16);
+            padding: 9px 15px; border-radius: var(--r);
+            font: inherit; font-size: 13.5px; font-weight: 550; cursor: pointer;
+            text-decoration: none;
+            transition: background .12s, border-color .12s;
+        }
+        .cart-btn:hover {
+            background: rgba(255,255,255,.16);
+            border-color: rgba(255,255,255,.3); color: #fff;
+        }
+        .cart-btn .n {
+            font-family: var(--mono); font-variant-numeric: tabular-nums;
+            background: rgba(255,255,255,.16); color: #fff;
+            min-width: 21px; height: 21px; padding: 0 6px;
+            border-radius: 11px; font-size: 11.5px; font-weight: 600;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: background .12s;
+        }
+        /* Счётчик загорается охрой, только когда в корзине что-то есть:
+           пустая корзина не должна требовать внимания. */
+        .cart-btn.has .n { background: var(--mark); }
+
+        /* --- Содержимое страницы ---------------------------------------- */
+        main { flex: 1; }
+        .page { padding: 28px 0 48px; }
+        .page-head { margin-bottom: 22px; }
+        .page-head .eyebrow {
+            font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+            text-transform: uppercase; color: var(--ink-3);
+        }
+        .page-head h2 {
+            font-size: 27px; font-weight: 660; letter-spacing: -.03em;
+            margin-top: 6px; line-height: 1.2;
+        }
+        .page-head p { color: var(--ink-2); font-size: 14.5px; margin-top: 8px; max-width: 620px; }
+
+        .panel {
+            background: var(--surface); border: 1px solid var(--line);
+            border-radius: var(--r-lg); padding: 22px;
+        }
+        .panel + .panel { margin-top: 16px; }
+        .panel h3 {
+            font-size: 16.5px; font-weight: 620; letter-spacing: -.015em;
+            margin-bottom: 10px; display: flex; align-items: center; gap: 9px;
+        }
+        .panel h3 .ic { color: var(--mark); }
+        .panel p { color: var(--ink-2); font-size: 14px; }
+        .panel p + p { margin-top: 10px; }
+        .cols { display: grid; gap: 16px; }
+        .cols-2 { grid-template-columns: 1fr 1fr; }
+        .cols-3 { grid-template-columns: repeat(3, 1fr); }
+        .cols-side { grid-template-columns: 1.35fr 1fr; align-items: start; }
+
+        /* Перечень с галочками вместо маркеров: тот же значок, что и
+           «в наличии» на витрине. */
+        .ticks { list-style: none; margin-top: 12px; }
+        .ticks li {
+            display: flex; gap: 9px; align-items: flex-start;
+            color: var(--ink-2); font-size: 14px; padding: 5px 0;
+        }
+        .ticks li .ic { color: var(--ok); margin-top: 2px; }
+
+        /* Пары «подпись — значение»: реквизиты, характеристики, условия. */
+        .rows { display: grid; gap: 1px; background: var(--line);
+                border: 1px solid var(--line); border-radius: var(--r);
+                overflow: hidden; margin-top: 12px; }
+        .rows > div {
+            background: var(--surface); padding: 11px 14px;
+            display: flex; justify-content: space-between; gap: 16px;
+            flex-wrap: wrap; font-size: 14px;
+        }
+        .rows dt, .rows .k { color: var(--ink-3); font-size: 13px; }
+        .rows dd, .rows .v { font-weight: 550; text-align: right; }
+        .rows .v.mono { font-weight: 600; }
+
+        /* Шаги: как заказать, как доехать. Номер шага моноширинным —
+           это тоже число. */
+        .steps { counter-reset: step; margin-top: 6px; }
+        .step {
+            display: flex; gap: 14px; padding: 14px 0;
+            border-bottom: 1px solid var(--line);
+        }
+        .step:last-child { border-bottom: none; padding-bottom: 0; }
+        .step::before {
+            counter-increment: step; content: counter(step);
+            font-family: var(--mono); font-variant-numeric: tabular-nums;
+            width: 28px; height: 28px; flex: none; border-radius: 50%;
+            background: var(--surface-alt); border: 1px solid var(--line);
+            color: var(--ink-2); font-size: 12.5px; font-weight: 600;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .step b { display: block; font-size: 14.5px; font-weight: 600; }
+        .step span { display: block; color: var(--ink-2); font-size: 13.5px; margin-top: 3px; }
+
+        .note {
+            display: flex; gap: 10px; align-items: flex-start;
+            background: var(--surface-alt); border: 1px solid var(--line);
+            border-radius: var(--r); padding: 13px 15px; margin-top: 14px;
+            font-size: 13.5px; color: var(--ink-2);
+        }
+        .note .ic { color: var(--ink-3); margin-top: 1px; }
+
+        .btn-dark, .btn-mark {
+            display: inline-flex; align-items: center; justify-content: center;
+            gap: 8px; padding: 12px 20px; border: none; border-radius: var(--r);
+            font: inherit; font-size: 14.5px; font-weight: 600; cursor: pointer;
+            text-decoration: none; color: #fff;
+            transition: background .12s;
+        }
+        .btn-dark { background: var(--slate-800); }
+        .btn-dark:hover { background: var(--slate-700); color: #fff; }
+        .btn-mark { background: var(--mark); }
+        .btn-mark:hover { background: var(--mark-dark); color: #fff; }
+        .btn-line {
+            display: inline-flex; align-items: center; justify-content: center;
+            gap: 8px; padding: 11px 18px; border-radius: var(--r);
+            background: var(--surface); border: 1px solid var(--line-strong);
+            color: var(--ink); font: inherit; font-size: 14px; font-weight: 550;
+            text-decoration: none; cursor: pointer;
+            transition: border-color .12s, color .12s;
+        }
+        .btn-line:hover { border-color: var(--slate-700); color: var(--ink); }
+
+        /* --- Подвал ------------------------------------------------------ */
+        footer {
+            border-top: 1px solid var(--line); background: var(--surface);
+            padding: 28px 0 24px; color: var(--ink-2); font-size: 13px;
+        }
+        .foot-row {
+            display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 26px;
+            padding-bottom: 20px;
+        }
+        .foot-row h4 {
+            font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+            text-transform: uppercase; color: var(--ink-3);
+            font-weight: 500; margin-bottom: 9px;
+        }
+        .foot-row p { color: var(--ink-2); font-size: 13px; }
+        .foot-item { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 7px; }
+        .foot-item .ic { color: var(--ink-3); margin-top: 1px; }
+        .foot-item a { text-decoration: none; }
+        .foot-links { display: flex; flex-direction: column; gap: 6px; }
+        .foot-links a { text-decoration: none; font-size: 13px; }
+        .foot-bottom {
+            border-top: 1px solid var(--line); padding-top: 16px;
+            color: var(--ink-3); font-size: 12.5px;
+            display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+        }
+
+        @media (max-width: 900px) {
+            .cols-2, .cols-3, .cols-side { grid-template-columns: 1fr; }
+            .foot-row { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 620px) {
+            .container { padding: 0 16px; }
+            .head-row { padding: 13px 0; gap: 12px; }
+            header h1 { font-size: 16px; }
+            header .sub { display: none; }
+            .brand-mark { width: 36px; height: 36px; }
+            /* На узком экране у кнопки остаётся значок и счётчик:
+               слово «Корзина» съедало строку с названием магазина. */
+            .cart-btn { padding: 9px 11px; }
+            .cart-btn .label { display: none; }
+            .nav-row { gap: 0; }
+            .nav a { padding: 11px 12px; font-size: 13px; }
+            .page { padding: 20px 0 36px; }
+            .page-head h2 { font-size: 22px; }
+            .panel { padding: 17px; }
+            .foot-row { grid-template-columns: 1fr; gap: 18px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            * { transition: none !important; animation: none !important; }
+        }
+        :focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+        {% block styles %}{% endblock %}
+    </style>
+</head>
+<body>
+    {% include '_icons.html' %}
+
+    <header>
+        <div class="container head-row">
+            <a class="brand" href="{% url 'shop-page' %}">
+                <span class="brand-mark"><svg><use href="#i-factory"></use></svg></span>
+                <div>
+                    <span class="eyebrow">{{ company.short_name }} · {{ company.city }}</span>
+                    <h1>{{ company.tagline }}</h1>
+                    <p class="sub">Собственное производство. Цены и наличие — со склада.</p>
+                </div>
+            </a>
+            {% block header_action %}
+            <a class="cart-btn" href="{% url 'shop-page' %}">
+                <svg class="ic"><use href="#i-store"></use></svg>
+                <span class="label">В магазин</span>
+            </a>
+            {% endblock %}
+        </div>
+    </header>
+
+    <nav class="nav">
+        <div class="container nav-row">
+            <a href="{% url 'shop-page' %}" {% if page == 'shop' %}class="on"{% endif %}>
+                <svg class="ic"><use href="#i-store"></use></svg>Витрина</a>
+            <a href="{% url 'shop-about' %}" {% if page == 'about' %}class="on"{% endif %}>
+                <svg class="ic"><use href="#i-factory"></use></svg>О производстве</a>
+            <a href="{% url 'shop-delivery' %}" {% if page == 'delivery' %}class="on"{% endif %}>
+                <svg class="ic"><use href="#i-truck"></use></svg>Доставка и оплата</a>
+            <a href="{% url 'shop-contacts' %}" {% if page == 'contacts' %}class="on"{% endif %}>
+                <svg class="ic"><use href="#i-pin"></use></svg>Контакты</a>
+        </div>
+    </nav>
+
+    <main>{% block content %}{% endblock %}</main>
+
+    <footer>
+        <div class="container">
+            <div class="foot-row">
+                <div>
+                    <h4>Производство</h4>
+                    <p>{{ company.short_name }} — изготовление спортивного инвентаря
+                       и экипировки: макивары, боксёрские перчатки, мячи,
+                       снаряды для залов и секций.</p>
+                </div>
+                <div>
+                    <h4>Контакты</h4>
+                    <div class="foot-item">
+                        <svg class="ic"><use href="#i-pin"></use></svg>
+                        <span>{{ company.address_full }}</span>
+                    </div>
+                    {% if company.has_phone %}
+                    <div class="foot-item">
+                        <svg class="ic"><use href="#i-phone"></use></svg>
+                        <a href="tel:{{ company.phone_link }}">{{ company.phone }}</a>
+                    </div>
+                    {% endif %}
+                    {% if company.has_email %}
+                    <div class="foot-item">
+                        <svg class="ic"><use href="#i-mail"></use></svg>
+                        <a href="mailto:{{ company.email }}">{{ company.email }}</a>
+                    </div>
+                    {% endif %}
+                    <div class="foot-item">
+                        <svg class="ic"><use href="#i-clock"></use></svg>
+                        <span>{{ company.hours_week }}</span>
+                    </div>
+                </div>
+                <div>
+                    <h4>Разделы</h4>
+                    <div class="foot-links">
+                        <a href="{% url 'shop-page' %}">Витрина</a>
+                        <a href="{% url 'shop-about' %}">О производстве</a>
+                        <a href="{% url 'shop-delivery' %}">Доставка и оплата</a>
+                        <a href="{% url 'shop-contacts' %}">Контакты и схема проезда</a>
+                    </div>
+                </div>
+            </div>
+            <div class="foot-bottom">
+                <span>© {{ company.short_name }}, {{ company.city }}</span>
+                <span>Цены указаны в рублях за штуку</span>
+            </div>
+        </div>
+    </footer>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

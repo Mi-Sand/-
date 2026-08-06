@@ -1,0 +1,101 @@
+{% extends 'shop_base.html' %}
+{% block title %}О производстве — {{ company.short_name }}{% endblock %}
+
+{% block content %}
+<div class="container page">
+
+    <div class="page-head">
+        <span class="eyebrow">О предприятии</span>
+        <h2>Делаем спортивный инвентарь сами</h2>
+        <p>{{ company.full_name }} — производственное предприятие в
+           {{ company.city }}е. Мы не перепродаём чужое: изделия выходят
+           из нашего цеха и попадают на склад, откуда вы их и заказываете.</p>
+    </div>
+
+    <div class="cols cols-side">
+        <div class="panel">
+            <h3><svg class="ic"><use href="#i-factory"></use></svg>Что мы производим</h3>
+            <p>Ассортимент собран вокруг единоборств и общей физической
+               подготовки — это то, что мы умеем делать хорошо.</p>
+            <ul class="ticks">
+                <li><svg class="ic"><use href="#i-check"></use></svg>
+                    Макивары, лапы, подушки и щиты для отработки ударов</li>
+                <li><svg class="ic"><use href="#i-check"></use></svg>
+                    Боксёрские перчатки, шлемы, бинты и защита</li>
+                <li><svg class="ic"><use href="#i-check"></use></svg>
+                    Мячи: футбольные, волейбольные, баскетбольные, набивные</li>
+                <li><svg class="ic"><use href="#i-check"></use></svg>
+                    Снаряды и инвентарь для залов, секций и школ</li>
+            </ul>
+            <div class="note">
+                <svg class="ic"><use href="#i-info"></use></svg>
+                <span>Изделия выпускаются в нескольких размерах и цветах.
+                      Доступные сочетания видны в карточке товара на витрине —
+                      там же указано, сколько штук есть на складе прямо сейчас.</span>
+            </div>
+        </div>
+
+        <div>
+            <div class="panel">
+                <h3><svg class="ic"><use href="#i-target"></use></svg>Почему напрямую</h3>
+                <p>Между цехом и покупателем нет ни одного посредника.
+                   Это заметно в трёх вещах.</p>
+                <ul class="ticks">
+                    <li><svg class="ic"><use href="#i-check"></use></svg>
+                        Цена без торговой наценки</li>
+                    <li><svg class="ic"><use href="#i-check"></use></svg>
+                        Партию можно изготовить под размер и цвет заказчика</li>
+                    <li><svg class="ic"><use href="#i-check"></use></svg>
+                        Вопрос по изделию решает тот, кто его делал</li>
+                </ul>
+            </div>
+            <div class="panel">
+                <h3><svg class="ic"><use href="#i-box"></use></svg>Наличие — настоящее</h3>
+                <p>Витрина берёт остатки из складского учёта, а не из
+                   отдельного списка «для сайта». Если товар отмечен как
+                   доступный — он физически лежит на складе и не обещан
+                   другому заказу.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3><svg class="ic"><use href="#i-users"></use></svg>С кем мы работаем</h3>
+        <div class="cols cols-3" style="margin-top:12px;">
+            <div>
+                <b style="display:block; margin-bottom:5px;">Спортивные школы и секции</b>
+                <p>Комплектование зала: партии одного изделия в нужных
+                   размерах, повторяемые поставки к началу сезона.</p>
+            </div>
+            <div>
+                <b style="display:block; margin-bottom:5px;">Клубы и залы</b>
+                <p>Расходуемый инвентарь, который приходится обновлять:
+                   лапы, перчатки, бинты, мячи.</p>
+            </div>
+            <div>
+                <b style="display:block; margin-bottom:5px;">Частные покупатели</b>
+                <p>Поштучно, без минимального заказа. Оформление такое же,
+                   как у организаций.</p>
+            </div>
+        </div>
+        <div class="note">
+            <svg class="ic"><use href="#i-clipboard"></use></svg>
+            <span>Организациям выставляем счёт, отгружаем по накладной
+                  ТОРГ-12 или УПД, по запросу готовим акт сверки.
+                  Подробнее — в разделе
+                  <a href="{% url 'shop-delivery' %}">«Доставка и оплата»</a>.</span>
+        </div>
+    </div>
+
+    <div class="panel" style="display:flex; justify-content:space-between;
+                              align-items:center; gap:16px; flex-wrap:wrap;">
+        <div>
+            <h3 style="margin-bottom:4px;">Посмотреть, что есть сейчас</h3>
+            <p>Наличие и цены на витрине обновляются со склада.</p>
+        </div>
+        <a class="btn-mark" href="{% url 'shop-page' %}">
+            <svg class="ic"><use href="#i-store"></use></svg>Перейти к товарам</a>
+    </div>
+
+</div>
+{% endblock %}

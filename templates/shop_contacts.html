@@ -1,0 +1,273 @@
+{% extends 'shop_base.html' %}
+{% block title %}Контакты — {{ company.short_name }}{% endblock %}
+
+{% block styles %}
+        /* Схема проезда. Нарисована прямо в странице, а не подгружается
+           картами: сервер стоит в сети предприятия и наружу не ходит, а
+           встроенная карта без интернета показала бы серый прямоугольник.
+           Схема — вектор: остаётся чёткой при любом увеличении и печати. */
+        .map-box {
+            background: var(--surface-alt); border: 1px solid var(--line);
+            border-radius: var(--r); padding: 10px; margin-top: 4px;
+        }
+        .map-box svg { display: block; width: 100%; height: auto; }
+        .map-legend {
+            display: flex; flex-wrap: wrap; gap: 16px;
+            margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+            font-size: 12.5px; color: var(--ink-2);
+        }
+        .map-legend span { display: inline-flex; align-items: center; gap: 7px; }
+        .legend-road { width: 22px; height: 4px; border-radius: 2px; background: var(--mark); }
+        .legend-rail {
+            width: 22px; height: 0; border-top: 2px dashed var(--ink-3);
+        }
+        .legend-dot {
+            width: 11px; height: 11px; border-radius: 50%;
+            background: var(--stop); border: 2px solid var(--surface);
+            box-shadow: 0 0 0 1px var(--stop);
+        }
+        .contact-big {
+            display: flex; gap: 12px; align-items: flex-start;
+            padding: 13px 0; border-bottom: 1px solid var(--line);
+        }
+        .contact-big:last-child { border-bottom: none; padding-bottom: 0; }
+        .contact-big .ic { color: var(--mark); margin-top: 2px; }
+        .contact-big .k {
+            font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+            text-transform: uppercase; color: var(--ink-3); display: block;
+        }
+        .contact-big .v { font-size: 15px; font-weight: 600; margin-top: 3px; display: block; }
+        .contact-big .v a { text-decoration: none; }
+        .contact-big .v.mono { letter-spacing: -.01em; }
+        .contact-big .hint { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; }
+        .todo {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 12.5px; font-weight: 550; color: var(--stop);
+            background: var(--stop-soft); border: 1px dashed #EDC9C6;
+            border-radius: 4px; padding: 3px 9px;
+        }
+{% endblock %}
+
+{% block content %}
+<div class="container page">
+
+    <div class="page-head">
+        <span class="eyebrow">Контакты</span>
+        <h2>Как с нами связаться и как доехать</h2>
+        <p>Производство и склад находятся в одном месте — забрать заказ
+           можно там же, где его собрали.</p>
+    </div>
+
+    <div class="cols cols-side">
+
+        <div class="panel">
+            <h3><svg class="ic"><use href="#i-pin"></use></svg>Схема проезда</h3>
+            <p>{{ company.city }} стоит на Дмитровском шоссе, примерно
+               в 50 км к северу от МКАД. Доехать можно на машине или
+               электричкой с Савёловского вокзала.</p>
+
+            <div class="map-box">
+                <!-- Схема нарисована в координатах 800×470 и тянется по
+                     ширине контейнера. Юг внизу, север вверху — как на
+                     обычной карте. -->
+                <svg viewBox="0 0 800 470" role="img"
+                     aria-label="Схема проезда: от Москвы по Дмитровскому шоссе
+                                 через Яхрому до Дмитрова, примерно 50 километров от МКАД">
+
+                    <rect x="0" y="0" width="800" height="470" rx="6" fill="#fff"/>
+
+                    <!-- Водохранилище и канал: главный ориентир местности -->
+                    <path d="M556 470 L556 300 Q556 250 596 214 L640 176 L640 60"
+                          fill="none" stroke="#DCE3E8" stroke-width="26"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+                    <text x="664" y="228" fill="#8496A5" font-size="13"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        Канал имени</text>
+                    <text x="664" y="246" fill="#8496A5" font-size="13"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        Москвы</text>
+
+                    <!-- Железная дорога: Савёловское направление -->
+                    <path d="M300 452 L300 330 Q300 300 322 278 L392 208 Q414 186 414 156 L414 92"
+                          fill="none" stroke="#8496A5" stroke-width="2.5"
+                          stroke-dasharray="9 7" stroke-linecap="round"/>
+
+                    <!-- Дмитровское шоссе, оно же А-104 -->
+                    <path d="M196 452 L196 340 Q196 306 222 282 L330 182 Q356 158 356 124 L356 92"
+                          fill="none" stroke="#D98A1F" stroke-width="7"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+
+                    <!-- Москва -->
+                    <circle cx="196" cy="440" r="9" fill="#12202B"/>
+                    <text x="216" y="437" fill="#16232D" font-size="17" font-weight="600"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        Москва</text>
+                    <text x="216" y="457" fill="#8496A5" font-size="13"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        МКАД, Дмитровское шоссе</text>
+
+                    <!-- Отметка расстояния -->
+                    <path d="M104 430 L104 130" fill="none" stroke="#C3CED6"
+                          stroke-width="1.5" stroke-dasharray="4 5"/>
+                    <path d="M96 430 L112 430 M96 130 L112 130" stroke="#C3CED6" stroke-width="1.5"/>
+                    <text x="60" y="286" fill="#55697A" font-size="14" font-weight="600"
+                          font-family="JetBrains Mono, Consolas, DejaVu Sans Mono, monospace">
+                        50 км</text>
+
+                    <!-- Яхрома: промежуточный ориентир -->
+                    <circle cx="286" cy="228" r="6" fill="#55697A"/>
+                    <text x="234" y="212" fill="#55697A" font-size="14"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        Яхрома</text>
+
+                    <!-- Дмитров: точка назначения -->
+                    <circle cx="356" cy="92" r="15" fill="#B23A32" opacity=".14"/>
+                    <circle cx="356" cy="92" r="8" fill="#B23A32"/>
+                    <circle cx="356" cy="92" r="3" fill="#fff"/>
+                    <text x="382" y="86" fill="#16232D" font-size="20" font-weight="660"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        {{ company.city }}</text>
+                    <text x="382" y="108" fill="#55697A" font-size="13.5"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        {% if company.has_street %}{{ company.street }}{% else %}Производство и склад{% endif %}</text>
+
+                    <!-- Подписи путей -->
+                    <text x="150" y="330" fill="#B4700F" font-size="13" font-weight="600"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif"
+                          transform="rotate(-90 150 330)">
+                        А-104, Дмитровское шоссе</text>
+                    <text x="330" y="430" fill="#8496A5" font-size="12.5"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif"
+                          transform="rotate(-90 330 430)">
+                        Савёловское направление</text>
+
+                    <!-- Стрелка «на север». Стоит слева вверху, где ничего
+                         не пересекает: справа проходит канал с подписью. -->
+                    <path d="M76 92 L76 42 M68 54 L76 42 L84 54"
+                          fill="none" stroke="#8496A5" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+                    <text x="68" y="114" fill="#8496A5" font-size="13" font-weight="600"
+                          font-family="Inter, Segoe UI, system-ui, Arial, sans-serif">
+                        С</text>
+                </svg>
+            </div>
+
+            <div class="map-legend">
+                <span><i class="legend-road"></i>Дмитровское шоссе</span>
+                <span><i class="legend-rail"></i>Железная дорога</span>
+                <span><i class="legend-dot"></i>Мы здесь</span>
+            </div>
+
+            <div class="note">
+                <svg class="ic"><use href="#i-info"></use></svg>
+                <span>Схема показывает направление, а не точный масштаб.
+                      Расстояние и время в пути — ориентировочные.</span>
+            </div>
+        </div>
+
+        <div>
+            <div class="panel">
+                <h3><svg class="ic"><use href="#i-phone"></use></svg>Связаться</h3>
+
+                <div class="contact-big">
+                    <svg class="ic"><use href="#i-pin"></use></svg>
+                    <div>
+                        <span class="k">Адрес</span>
+                        <span class="v">{{ company.address_full }}</span>
+                        {% if company.has_how_to_find %}
+                        <span class="hint">{{ company.how_to_find }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="contact-big">
+                    <svg class="ic"><use href="#i-phone"></use></svg>
+                    <div>
+                        <span class="k">Телефон</span>
+                        {% if company.has_phone %}
+                        <span class="v mono"><a href="tel:{{ company.phone_link }}">{{ company.phone }}</a></span>
+                        {% else %}
+                        <span class="v"><span class="todo">
+                            <svg class="ic-sm"><use href="#i-alert"></use></svg>не заполнен</span></span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="contact-big">
+                    <svg class="ic"><use href="#i-mail"></use></svg>
+                    <div>
+                        <span class="k">Почта</span>
+                        {% if company.has_email %}
+                        <span class="v"><a href="mailto:{{ company.email }}">{{ company.email }}</a></span>
+                        {% else %}
+                        <span class="v"><span class="todo">
+                            <svg class="ic-sm"><use href="#i-alert"></use></svg>не заполнена</span></span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="contact-big">
+                    <svg class="ic"><use href="#i-clock"></use></svg>
+                    <div>
+                        <span class="k">Часы работы</span>
+                        <span class="v">{{ company.hours_week }}</span>
+                        <span class="hint">{{ company.hours_weekend }}</span>
+                    </div>
+                </div>
+
+                {% if company.has_coords %}
+                <a class="btn-line" style="width:100%; margin-top:16px;"
+                   href="https://yandex.ru/maps/?pt={{ company.coords }}&z=16&l=map"
+                   target="_blank" rel="noopener">
+                    <svg class="ic"><use href="#i-external"></use></svg>Открыть в Яндекс.Картах</a>
+                {% endif %}
+            </div>
+
+            <div class="panel">
+                <h3><svg class="ic"><use href="#i-truck"></use></svg>Как добраться</h3>
+                <div class="steps">
+                    <div class="step">
+                        <div>
+                            <b>На машине</b>
+                            <span>По Дмитровскому шоссе (А-104) на север,
+                                  мимо Яхромы. Около часа без пробок.</span>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div>
+                            <b>Электричкой</b>
+                            <span>С Савёловского вокзала до станции Дмитров,
+                                  примерно полтора часа.</span>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div>
+                            <b>Забрать заказ</b>
+                            <span>Предупредите звонком — подготовим к вашему
+                                  приезду, чтобы не ждать на месте.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if company.has_inn %}
+    <div class="panel">
+        <h3><svg class="ic"><use href="#i-clipboard"></use></svg>Реквизиты</h3>
+        <div class="rows">
+            <div><span class="k">Наименование</span><span class="v">{{ company.full_name }}</span></div>
+            <div><span class="k">Адрес</span><span class="v">{{ company.address_full }}</span></div>
+            <div><span class="k">ИНН</span><span class="v mono">{{ company.inn }}</span></div>
+            {% if company.has_kpp %}
+            <div><span class="k">КПП</span><span class="v mono">{{ company.kpp }}</span></div>
+            {% endif %}
+            {% if company.has_ogrn %}
+            <div><span class="k">ОГРН</span><span class="v mono">{{ company.ogrn }}</span></div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

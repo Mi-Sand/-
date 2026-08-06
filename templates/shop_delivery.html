@@ -1,0 +1,143 @@
+{% extends 'shop_base.html' %}
+{% block title %}Доставка и оплата — {{ company.short_name }}{% endblock %}
+
+{% block content %}
+<div class="container page">
+
+    <div class="page-head">
+        <span class="eyebrow">Условия</span>
+        <h2>Доставка и оплата</h2>
+        <p>Заказ на сайте — это заявка. Деньги вперёд не берём: сначала
+           созваниваемся, подтверждаем наличие и сроки, и только потом
+           переходим к оплате.</p>
+    </div>
+
+    <div class="cols cols-side">
+        <div class="panel">
+            <h3><svg class="ic"><use href="#i-cart"></use></svg>Как проходит заказ</h3>
+            <div class="steps">
+                <div class="step">
+                    <div>
+                        <b>Вы собираете корзину</b>
+                        <span>Выбираете изделие, цвет и размер. Количество
+                              ограничено тем, что есть на складе.</span>
+                    </div>
+                </div>
+                <div class="step">
+                    <div>
+                        <b>Оставляете имя и телефон</b>
+                        <span>Адрес и комментарий — по желанию. Сразу после
+                              отправки вы увидите номер заказа.</span>
+                    </div>
+                </div>
+                <div class="step">
+                    <div>
+                        <b>Мы перезваниваем</b>
+                        <span>Подтверждаем состав, сумму и срок. Если чего-то
+                              не хватает — предлагаем замену или срок изготовления.</span>
+                    </div>
+                </div>
+                <div class="step">
+                    <div>
+                        <b>Оплата и отгрузка</b>
+                        <span>Организациям выставляем счёт, частным лицам —
+                              оплата при получении или переводом.</span>
+                    </div>
+                </div>
+            </div>
+            <div class="note">
+                <svg class="ic"><use href="#i-info"></use></svg>
+                <span>Товар в заказе резервируется за вами: на витрине он
+                      сразу перестаёт числиться доступным, чтобы его не
+                      продали дважды.</span>
+            </div>
+        </div>
+
+        <div>
+            <div class="panel">
+                <h3><svg class="ic"><use href="#i-truck"></use></svg>Доставка</h3>
+                <div class="rows">
+                    <div><span class="k">Самовывоз</span>
+                         <span class="v">{{ company.city }}, бесплатно</span></div>
+                    <div><span class="k">По России</span>
+                         <span class="v">Транспортной компанией</span></div>
+                    <div><span class="k">Стоимость</span>
+                         <span class="v">По тарифу перевозчика</span></div>
+                    <div><span class="k">Срок отгрузки</span>
+                         <span class="v">1–2 рабочих дня</span></div>
+                </div>
+                <p style="margin-top:12px;">Отгружаем со склада в
+                   {{ company.city }}е. Перевозчика выбираете вы —
+                   привезём груз в его терминал.</p>
+            </div>
+
+            <div class="panel">
+                <h3><svg class="ic"><use href="#i-ruble"></use></svg>Оплата</h3>
+                <div class="rows">
+                    <div><span class="k">Организациям</span>
+                         <span class="v">По счёту, безналично</span></div>
+                    <div><span class="k">Частным лицам</span>
+                         <span class="v">При получении или переводом</span></div>
+                    <div><span class="k">НДС</span>
+                         <span class="v mono">20&nbsp;%</span></div>
+                    <div><span class="k">Предоплата</span>
+                         <span class="v">Не требуется</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3><svg class="ic"><use href="#i-clipboard"></use></svg>Документы для бухгалтерии</h3>
+        <p>Организациям и предпринимателям готовим полный комплект.
+           Документы формируются из той же системы, что ведёт склад, —
+           расхождений между накладной и фактической отгрузкой не бывает.</p>
+        <div class="cols cols-2" style="margin-top:14px;">
+            <ul class="ticks" style="margin:0;">
+                <li><svg class="ic"><use href="#i-check"></use></svg>
+                    Счёт на оплату</li>
+                <li><svg class="ic"><use href="#i-check"></use></svg>
+                    Товарная накладная ТОРГ-12</li>
+            </ul>
+            <ul class="ticks" style="margin:0;">
+                <li><svg class="ic"><use href="#i-check"></use></svg>
+                    Универсальный передаточный документ (УПД)</li>
+                <li><svg class="ic"><use href="#i-check"></use></svg>
+                    Акт сверки взаиморасчётов — по запросу</li>
+            </ul>
+        </div>
+        {% if company.has_inn %}
+        <div class="rows">
+            <div><span class="k">ИНН</span><span class="v mono">{{ company.inn }}</span></div>
+            {% if company.has_kpp %}
+            <div><span class="k">КПП</span><span class="v mono">{{ company.kpp }}</span></div>
+            {% endif %}
+            {% if company.has_ogrn %}
+            <div><span class="k">ОГРН</span><span class="v mono">{{ company.ogrn }}</span></div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="panel">
+        <h3><svg class="ic"><use href="#i-undo"></use></svg>Если что-то не так</h3>
+        <p>Изделие с браком меняем или возвращаем деньги — сообщите нам
+           в течение 14 дней с получения. Для обмена нужен сам товар
+           и номер заказа: по нему мы найдём, что и когда отгружали.</p>
+        <p>Инвентарь надлежащего качества, изготовленный под ваш размер
+           или цвет отдельной партией, обмену не подлежит — такие позиции
+           мы всегда оговариваем при подтверждении заказа.</p>
+    </div>
+
+    <div class="panel" style="display:flex; justify-content:space-between;
+                              align-items:center; gap:16px; flex-wrap:wrap;">
+        <div>
+            <h3 style="margin-bottom:4px;">Остались вопросы</h3>
+            <p>Ответим по телефону в рабочие часы: {{ company.hours_week }}.</p>
+        </div>
+        <a class="btn-line" href="{% url 'shop-contacts' %}">
+            <svg class="ic"><use href="#i-pin"></use></svg>Контакты и схема проезда</a>
+    </div>
+
+</div>
+{% endblock %}

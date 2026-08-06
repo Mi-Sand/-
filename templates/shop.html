@@ -1,115 +1,21 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Магазин ООО «ЛЕКО»</title>
-    <style>
-        /* Витрина ООО «ЛЕКО». Оформление продолжает язык учётной системы:
-           графитовый сланец и охра складской разметки. Товар показан
-           крупно на белом, всё остальное подчёркнуто тихое — покупатель
-           пришёл смотреть изделия, а не интерфейс.
+{% extends 'shop_base.html' %}
+{% block title %}Магазин {{ company.short_name }}{% endblock %}
 
-           Отдельная забота — небольшой ассортимент. Производственный
-           магазин на десяток позиций не должен выглядеть недоделанным,
-           поэтому страница держит композицию и на одном товаре: полосу
-           о производстве, крупную сетку и подвал с контактами. */
-        :root {
-            --canvas: var(--line); --surface: #fff; --surface-alt: #F7F9FA;
-            --slate-900: #12202B; --slate-800: #1B2E3D; --slate-700: #26404F;
-            --ink: #16232D; --ink-2: #55697A; --ink-3: #8496A5;
-            --line: #DCE3E8; --line-strong: #C3CED6;
-            --mark: #D98A1F; --mark-dark: #B4700F;
-            --ok: #1F7A4C; --ok-soft: #E7F4ED;
-            --stop: #B23A32; --stop-soft: #FBEBEA;
-            --r: 6px; --r-lg: 10px;
-            --sans: "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
-            --mono: "JetBrains Mono", "SF Mono", "Consolas", "DejaVu Sans Mono", monospace;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: var(--sans); font-size: 14px; line-height: 1.5;
-            background: var(--canvas); color: var(--ink);
-            -webkit-font-smoothing: antialiased;
-            display: flex; flex-direction: column; min-height: 100vh;
-        }
-        /* Числа — моноширинным с табличными цифрами: цены выстраиваются
-           в столбец и не пляшут при смене разряда. Принцип общий со всей
-           системой учёта. */
-        .mono, .price, .modal-price, .cart-btn .n, .qty-val,
+{% block header_action %}
+            <button class="cart-btn" id="cartBtn" onclick="openCart()">
+                <svg class="ic"><use href="#i-cart"></use></svg>
+                <span class="label">Корзина</span> <span class="n" id="cartCount">0</span>
+            </button>
+{% endblock %}
+
+{% block styles %}
+        /* Числа витрины моноширинным — как и везде в системе. */
+        .price, .modal-price, .cart-btn .n, .qty-val,
         .sum-line span:last-child, .co-total span:last-child {
             font-family: var(--mono); font-variant-numeric: tabular-nums;
         }
-        .ic    { width: 18px; height: 18px; display: inline-block; vertical-align: -3.5px; flex: none; }
-        .ic-sm { width: 14px; height: 14px; vertical-align: -2.5px; }
-        .ic-lg { width: 22px; height: 22px; vertical-align: -5px; }
-
-        .container { max-width: 1180px; margin: 0 auto; padding: 0 22px; width: 100%; }
-
-        /* --- Шапка --------------------------------------------------- */
-        header {
-            background: var(--slate-900); color: #fff;
-            border-bottom: 3px solid var(--mark);
-            position: sticky; top: 0; z-index: 900;
-        }
-        .head-row {
-            display: flex; align-items: center; justify-content: space-between;
-            gap: 20px; padding: 16px 0;
-        }
-        .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
-        /* Марка предприятия вместо картинки-логотипа: тот же графит и охра,
-           что и в учётной системе, — витрина и склад читаются как одно. */
-        .brand-mark {
-            width: 42px; height: 42px; flex: none; border-radius: var(--r);
-            border: 1px solid rgba(255,255,255,.2);
-            background: rgba(255,255,255,.07); color: var(--mark);
-            display: flex; align-items: center; justify-content: center;
-        }
-        .brand-mark .ic { width: 22px; height: 22px; vertical-align: 0; }
-        header .eyebrow {
-            font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em;
-            text-transform: uppercase; color: var(--mark); display: block;
-        }
-        header h1 { font-size: 19px; font-weight: 640; letter-spacing: -.02em; margin-top: 2px; }
-        header .sub { color: #94A9B8; font-size: 12.5px; margin-top: 2px; }
-
-        .cart-btn {
-            display: inline-flex; align-items: center; gap: 8px;
-            background: rgba(255,255,255,.09); color: #fff;
-            border: 1px solid rgba(255,255,255,.16);
-            padding: 9px 15px; border-radius: var(--r);
-            font: inherit; font-size: 13.5px; font-weight: 550; cursor: pointer;
-            transition: background .12s, border-color .12s;
-        }
-        .cart-btn:hover { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.3); }
-        .cart-btn .n {
-            background: rgba(255,255,255,.16); color: #fff;
-            min-width: 21px; height: 21px; padding: 0 6px;
-            border-radius: 11px; font-size: 11.5px; font-weight: 600;
-            display: inline-flex; align-items: center; justify-content: center;
-            transition: background .12s, color .12s;
-        }
-        /* Счётчик загорается охрой, только когда в корзине что-то есть:
-           пустая корзина не должна требовать внимания. */
-        .cart-btn.has .n { background: var(--mark); color: #fff; }
-
-        /* --- Полоса о производстве ----------------------------------- */
-        /* Держит верх страницы, когда товаров мало, и отвечает на вопрос
-           покупателя «кто продаёт» до того, как он его задаст. */
-        .intro { background: var(--slate-800); color: #fff; }
-        .intro-row {
-            display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr;
-            gap: 26px; padding: 22px 0; align-items: start;
-        }
-        .intro h2 { font-size: 17px; font-weight: 620; letter-spacing: -.02em; }
-        .intro h2 + p { color: #94A9B8; font-size: 13px; margin-top: 5px; }
-        .fact { display: flex; gap: 10px; align-items: flex-start; }
-        .fact .ic { color: var(--mark); margin-top: 1px; }
-        .fact b { display: block; font-size: 13.5px; font-weight: 600; }
-        .fact span { display: block; color: #94A9B8; font-size: 12.5px; margin-top: 2px; }
 
         /* --- Панель поиска ------------------------------------------- */
-        main { flex: 1; }
         .toolbar {
             display: flex; gap: 10px; margin: 24px 0 14px;
             flex-wrap: wrap; align-items: center;
@@ -501,21 +407,7 @@
             padding: 12px; margin: 10px 0 16px;
         }
 
-        /* --- Телефон --------------------------------------------------- */
-        @media (max-width: 900px) {
-            .intro-row { grid-template-columns: 1fr 1fr; gap: 18px; }
-            .foot-row { grid-template-columns: 1fr 1fr; }
-        }
         @media (max-width: 620px) {
-            .container { padding: 0 16px; }
-            .head-row { padding: 13px 0; gap: 12px; }
-            header h1 { font-size: 16px; }
-            header .sub { display: none; }
-            .brand-mark { width: 36px; height: 36px; }
-            /* На узком экране у кнопки остаётся значок и счётчик:
-               слово «Корзина» съедало строку с названием магазина. */
-            .cart-btn { padding: 9px 11px; }
-            .cart-btn .label { display: none; }
             /* На телефоне полоса о производстве сжимается до сути: три
                строки без пояснений. Иначе покупатель прокручивает пол-экрана
                прежде, чем увидит первый товар. */
@@ -528,7 +420,6 @@
                 grid-template-columns: 1fr; gap: 14px; justify-content: stretch;
             }
             .grid.few .card-img { aspect-ratio: 4 / 3; }
-            .foot-row { grid-template-columns: 1fr; gap: 18px; }
             .modal { padding: 0; align-items: flex-end; }
             .modal-box { max-height: 94vh; border-radius: var(--r-lg) var(--r-lg) 0 0; }
             .modal-img { height: 250px; border-radius: var(--r-lg) var(--r-lg) 0 0; }
@@ -539,29 +430,10 @@
         @media (prefers-reduced-motion: reduce) {
             *, .skeleton { transition: none !important; animation: none !important; }
         }
-        :focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
-    </style>
-</head>
-<body>
-    {% include '_icons.html' %}
 
-    <header>
-        <div class="container head-row">
-            <div class="brand">
-                <span class="brand-mark"><svg><use href="#i-factory"></use></svg></span>
-                <div>
-                    <span class="eyebrow">ООО «ЛЕКО» · г. Дмитров</span>
-                    <h1>Спортивный инвентарь и экипировка</h1>
-                    <p class="sub">Собственное производство. Цены и наличие — со склада.</p>
-                </div>
-            </div>
-            <button class="cart-btn" id="cartBtn" onclick="openCart()">
-                <svg class="ic"><use href="#i-cart"></use></svg>
-                <span class="label">Корзина</span> <span class="n" id="cartCount">0</span>
-            </button>
-        </div>
-    </header>
+{% endblock %}
 
+{% block content %}
     <div class="intro">
         <div class="container intro-row">
             <div>
@@ -583,7 +455,6 @@
         </div>
     </div>
 
-    <main>
         <div class="container">
             <div class="toolbar">
                 <div class="search-wrap">
@@ -603,47 +474,10 @@
 
             <div class="grid" id="grid"></div>
         </div>
-    </main>
 
-    <footer>
-        <div class="container">
-            <div class="foot-row">
-                <div>
-                    <h4>Производство</h4>
-                    <p>ООО «ЛЕКО» — изготовление спортивного инвентаря
-                       и экипировки: макивары, боксёрские перчатки, мячи,
-                       снаряды для залов и секций.</p>
-                </div>
-                <div>
-                    <h4>Контакты</h4>
-                    <div class="foot-item">
-                        <svg class="ic"><use href="#i-pin"></use></svg>
-                        <span>Московская обл., г. Дмитров</span>
-                    </div>
-                    <div class="foot-item">
-                        <svg class="ic"><use href="#i-clock"></use></svg>
-                        <span>Пн–Пт, 9:00–18:00</span>
-                    </div>
-                </div>
-                <div>
-                    <h4>Как заказать</h4>
-                    <div class="foot-item">
-                        <svg class="ic"><use href="#i-cart"></use></svg>
-                        <span>Соберите корзину на сайте</span>
-                    </div>
-                    <div class="foot-item">
-                        <svg class="ic"><use href="#i-phone"></use></svg>
-                        <span>Мы перезвоним и подтвердим заказ</span>
-                    </div>
-                </div>
-            </div>
-            <div class="foot-bottom">
-                <span>© ООО «ЛЕКО», г. Дмитров</span>
-                <span>Цены указаны в рублях за штуку</span>
-            </div>
-        </div>
-    </footer>
+{% endblock %}
 
+{% block scripts %}
     <!-- Модальное окно корзины -->
     <div class="modal" id="cartModal" onclick="if(event.target===this) closeCart()">
         <div class="modal-box narrow">
@@ -1343,5 +1177,5 @@
         document.getElementById('category').addEventListener('change', loadProducts);
         loadProducts();
     </script>
-</body>
-</html>
+
+{% endblock %}

@@ -59,7 +59,11 @@ api_urlpatterns = [
     path('api/chat/read/', chat_mark_read, name='chat-read'),
     path('api/shop/products/', shop.shop_products, name='shop-products'),
     path('api/shop/orders/', shop.shop_create_order, name='shop-order'),
+    # Публичные страницы магазина — без входа в систему
     path('shop/', shop.shop_page, name='shop-page'),
+    path('shop/about/', shop.shop_about_page, name='shop-about'),
+    path('shop/delivery/', shop.shop_delivery_page, name='shop-delivery'),
+    path('shop/contacts/', shop.shop_contacts_page, name='shop-contacts'),
     path('api-auth/', include('rest_framework.urls')),
 ]
 

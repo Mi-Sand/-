@@ -23,9 +23,33 @@ from warehouse.order_services import create_order, get_reserved_quantities
 from warehouse.services import InsufficientStockError
 
 
+# --- Публичные страницы -----------------------------------------------------
+#
+# Витрина, «О производстве», «Доставка и оплата» и «Контакты» открыты без
+# входа в систему. Общая шапка, меню и подвал лежат в shop_base.html;
+# каждая страница передаёт только своё имя — по нему меню подсвечивает
+# текущий раздел. Сведения о предприятии приходят из shop_info.py через
+# процессор контекста, руками их передавать не нужно.
+
+
 def shop_page(request):
     """Публичная страница-витрина (доступна без входа)."""
-    return render(request, 'shop.html')
+    return render(request, 'shop.html', {'page': 'shop'})
+
+
+def shop_about_page(request):
+    """О производстве: что делаем и для кого."""
+    return render(request, 'shop_about.html', {'page': 'about'})
+
+
+def shop_delivery_page(request):
+    """Доставка, оплата и документы для бухгалтерии."""
+    return render(request, 'shop_delivery.html', {'page': 'delivery'})
+
+
+def shop_contacts_page(request):
+    """Контакты, схема проезда и реквизиты."""
+    return render(request, 'shop_contacts.html', {'page': 'contacts'})
 
 
 @api_view(['GET'])
