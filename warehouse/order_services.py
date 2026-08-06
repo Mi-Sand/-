@@ -461,6 +461,44 @@ def validate_russian_address(address):
 
 
 @transaction.atomic
+def _read_cart(items):
+    """Разобрать корзину, пришедшую из браузера покупателя.
+
+    Заказ оформляет посторонний человек без входа в систему, поэтому
+    проверяется всё: что корзина вообще список, что в каждой строке есть
+    товар и количество и что это числа.
+
+    Раньше проверялось только «количество больше нуля», а до неё дело не
+    доходило: строка вроде «абв» падала при переводе в число, и покупатель
+    получал отказ сервера вместо понятного сообщения. Особый случай —
+    «Infinity» и «NaN»: в число они переводятся, но сравнение NaN с нулём
+    всегда ложно, поэтому такое количество проскакивало проверку насквозь.
+
+    Возвращает список пар (id товара, количество).
+    """
+    if not isinstance(items, (list, tuple)):
+        raise ValueError('Неверный формат корзины')
+
+    rows = []
+    for row in items:
+        if not isinstance(row, dict):
+            raise ValueError('Неверный формат строки заказа')
+        try:
+            product_id = int(row['product'])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError('В строке заказа не указан товар')
+        try:
+            quantity = Decimal(str(row['quantity']))
+        except (KeyError, TypeError, ArithmeticError):
+            raise ValueError('Неверное количество в строке заказа')
+        if not quantity.is_finite():
+            raise ValueError('Неверное количество в строке заказа')
+        if quantity <= 0:
+            raise ValueError('Количество должно быть больше нуля')
+        rows.append((product_id, quantity))
+    return rows
+
+
 def create_order(customer_name, customer_phone, items,
                  customer_email='', address='', comment=''):
     """Создать заказ покупателя с проверкой доступности товара.
@@ -486,7 +524,8 @@ def create_order(customer_name, customer_phone, items,
     # Доставка только по России — проверяем адрес до создания заказа
     validate_russian_address(address)
 
-    product_ids = [int(i['product']) for i in items]
+    rows = _read_cart(items)
+    product_ids = [pid for pid, _ in rows]
 
     # Блокируем строки остатков по заказываемым товарам до конца транзакции —
     # это исключает гонку между одновременными заказами.
@@ -500,11 +539,7 @@ def create_order(customer_name, customer_phone, items,
     # товару: иначе каждая строка проверялась бы против полного остатка
     # по отдельности, и суммарно можно было бы заказать больше, чем есть.
     wanted = {}
-    for row in items:
-        pid = int(row['product'])
-        qty = Decimal(str(row['quantity']))
-        if qty <= 0:
-            raise ValueError('Количество должно быть больше нуля')
+    for pid, qty in rows:
         wanted[pid] = wanted.get(pid, Decimal('0')) + qty
 
     prepared = []

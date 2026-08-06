@@ -22,7 +22,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from warehouse.models import Material, Stock, StockMovement, Product
+from warehouse.models import Material, Stock, StockMovement
 from inventory.models import Inventory
 
 
@@ -33,6 +33,49 @@ from inventory.models import Inventory
 STOCK_KINDS = ('all', 'material', 'product')
 
 DASH = '—'
+
+
+def read_days(value, default, low=1, high=3650):
+    """Число дней из адреса страницы, приведённое к разумным границам.
+
+    Параметр приходит из браузера, и там может оказаться что угодно:
+    пусто, буквы, число в сто знаков. Раньше отчёт о движении переводил
+    его в число напрямую, и «?days=abc» отдавал отказ сервера вместо
+    ответа. Слишком большое значение валило перевод отдельно: такое
+    число не помещается в целое, с которым работает база.
+    """
+    if value in (None, ''):
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'Неверное значение параметра days: {value!r}')
+    return max(low, min(number, high))
+
+
+#: Предел для номера записи. База хранит их в 64-разрядном целом, и
+#: число сверх этого валит запрос ещё до отбора — с отказом сервера, а
+#: не с пустым ответом.
+MAX_ID = 2 ** 63 - 1
+
+
+def read_id(value, name):
+    """Номер записи из адреса страницы.
+
+    Отдать нечисловой номер прямо в отбор нельзя: база отвечает
+    «Field 'id' expected a number», и пользователь видит отказ сервера
+    вместо ответа. Слишком большое число валится отдельно, уже в SQLite.
+    Пустое значение означает «без отбора».
+    """
+    if value in (None, ''):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'Неверное значение параметра {name}: {value!r}')
+    if not (0 < number <= MAX_ID):
+        raise ValueError(f'Неверное значение параметра {name}: {value!r}')
+    return number
 
 
 def _stock_rows(stocks):
@@ -76,8 +119,8 @@ def _stock_queryset(request):
     params = request.GET
     stocks = Stock.objects.select_related('warehouse', 'material', 'product')
 
-    warehouse_id = params.get('warehouse')
-    if warehouse_id:
+    warehouse_id = read_id(params.get('warehouse'), 'warehouse')
+    if warehouse_id is not None:
         stocks = stocks.filter(warehouse_id=warehouse_id)
 
     kind = params.get('kind', 'all')
@@ -100,7 +143,10 @@ def stock_report(request):
     только готовые изделия, all (по умолчанию) — всё вместе.
     """
     date = request.query_params.get('date', datetime.now().date())
-    stocks, kind = _stock_queryset(request)
+    try:
+        stocks, kind = _stock_queryset(request)
+    except ValueError as e:
+        return Response({'error': str(e)}, status=400)
     rows = _stock_rows(stocks)
 
     titles = {
@@ -122,17 +168,24 @@ def stock_report(request):
 @permission_classes([IsAuthenticated])
 def movement_report(request):
     """Движение товаров за период."""
-    days_back = int(request.query_params.get('days', 30))
+    try:
+        days_back = read_days(request.query_params.get('days'), 30)
+    except ValueError as e:
+        return Response({'error': str(e)}, status=400)
     from_date = datetime.now().date() - timedelta(days=days_back)
     to_date = datetime.now().date()
-    warehouse_id = request.query_params.get('warehouse')
+    try:
+        warehouse_id = read_id(request.query_params.get('warehouse'),
+                               'warehouse')
+    except ValueError as e:
+        return Response({'error': str(e)}, status=400)
 
     movements = (StockMovement.objects
                 .select_related('warehouse', 'material', 'product', 'user')
                 .filter(created_at__date__gte=from_date,
                         created_at__date__lte=to_date))
 
-    if warehouse_id:
+    if warehouse_id is not None:
         movements = movements.filter(warehouse_id=warehouse_id)
 
     inbound_qty = (movements.filter(movement_type='in')
@@ -200,9 +253,13 @@ def reorder_report(request):
 @permission_classes([IsAuthenticated])
 def inventory_report(request):
     """Результаты инвентаризаций."""
-    inventory_id = request.query_params.get('inventory')
+    try:
+        inventory_id = read_id(request.query_params.get('inventory'),
+                               'inventory')
+    except ValueError as e:
+        return Response({'error': str(e)}, status=400)
 
-    if inventory_id:
+    if inventory_id is not None:
         inventories = Inventory.objects.filter(pk=inventory_id)
     else:
         inventories = (Inventory.objects
@@ -255,7 +312,11 @@ def stock_report_export(request):
 
     # Данные собираются той же функцией, что и для страницы: выгрузка
     # должна показывать ровно то, что человек видел на экране.
-    stocks, kind = _stock_queryset(request)
+    try:
+        stocks, kind = _stock_queryset(request)
+    except ValueError as e:
+        from django.http import HttpResponse
+        return HttpResponse(str(e), status=400, content_type='text/plain; charset=utf-8')
     rows = _stock_rows(stocks)
 
     sheet_titles = {

@@ -28,13 +28,63 @@ from .services import (InsufficientStockError, process_inbound_document,
                        unprocess_outbound_document)
 
 
-class MaterialViewSet(viewsets.ModelViewSet):
+class CatalogDeleteGuardMixin:
+    """Не даёт удалить справочную запись, за которой числится история.
+
+    Остатки и движения связаны со справочником каскадом: удаление
+    материала уносило с собой и остаток по нему, и всю историю приходов
+    и расходов. Пятьсот килограммов кожи и три года движений исчезали по
+    одному нажатию с вопросом «Удалить материал?» — и вернуть их было
+    неоткуда, кроме резервной копии.
+
+    Запись без остатка и без движений удаляется как прежде: заведённую
+    по ошибке позицию убрать можно. Дальше действует то же правило, что
+    и для проведённых документов, — списать остаток, а позицию убрать
+    из обращения (у продукции для этого есть состояние «Снят с
+    производства»).
+    """
+
+    #: Чем закончить фразу «Нельзя удалить …»
+    guard_subject = 'запись'
+    #: Как поступить вместо удаления
+    guard_advice = ''
+
+    def _usage(self, obj):
+        """Сколько остатков и движений держит запись."""
+        field = self.guard_field
+        stock = (Stock.objects.filter(**{field: obj})
+                 .exclude(quantity=0).count())
+        moves = StockMovement.objects.filter(**{field: obj}).count()
+        return stock, moves
+
+    def destroy(self, request, *args, **kwargs):
+        obj = self.get_object()
+        stock, moves = self._usage(obj)
+        if stock or moves:
+            parts = []
+            if stock:
+                parts.append(f'числится остаток на складах ({stock})')
+            if moves:
+                parts.append(f'есть движения по складу ({moves})')
+            return Response(
+                {'error': f'Нельзя удалить {self.guard_subject} «{obj}»: '
+                          + ' и '.join(parts) + '. '
+                          + self.guard_advice},
+                status=status.HTTP_400_BAD_REQUEST)
+        return super().destroy(request, *args, **kwargs)
+
+
+class MaterialViewSet(CatalogDeleteGuardMixin, viewsets.ModelViewSet):
     queryset = Material.objects.all()
     serializer_class = MaterialSerializer
     permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'unit']
     search_fields = ['name', 'description']
     ordering_fields = ['name', 'category', 'reorder_point']
+    guard_field = 'material'
+    guard_subject = 'материал'
+    guard_advice = ('Сначала спишите остаток расходным документом — '
+                    'история движений должна остаться в учёте.')
 
     @action(detail=False, methods=['get'])
     def low_stock(self, request):
@@ -51,19 +101,29 @@ class MaterialViewSet(viewsets.ModelViewSet):
         return Response(data)
 
 
-class ProductViewSet(viewsets.ModelViewSet):
+class ProductViewSet(CatalogDeleteGuardMixin, viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'size', 'color', 'status']
     search_fields = ['name', 'article_number', 'color']
     ordering_fields = ['name', 'article_number', 'selling_price']
+    guard_field = 'product'
+    guard_subject = 'продукцию'
+    guard_advice = ('Чтобы убрать позицию из обращения, поставьте ей '
+                    'состояние «Снят с производства» — она пропадёт '
+                    'с витрины, а история отгрузок сохранится.')
 
 
-class WarehouseViewSet(viewsets.ModelViewSet):
+class WarehouseViewSet(CatalogDeleteGuardMixin, viewsets.ModelViewSet):
     queryset = Warehouse.objects.all()
     serializer_class = WarehouseSerializer
     permission_classes = [CanManageCatalog]
+    guard_field = 'warehouse'
+    guard_subject = 'склад'
+    guard_advice = ('Сначала переместите или спишите то, что на нём '
+                    'лежит: вместе со складом пропала бы и история '
+                    'движений по нему.')
 
 
 class SupplierViewSet(viewsets.ModelViewSet):

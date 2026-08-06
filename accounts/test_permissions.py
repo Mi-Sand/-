@@ -12,7 +12,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from warehouse.models import (InboundDocument, Material, Order, OrderItem,
-                              OutboundDocument, Product, Stock, Supplier,
+                              Product, Stock, Supplier,
                               Warehouse)
 
 User = get_user_model()
