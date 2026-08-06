@@ -275,11 +275,36 @@
                слово «Корзина» съедало строку с названием магазина. */
             .cart-btn { padding: 9px 11px; }
             .cart-btn .label { display: none; }
-            .nav-row { gap: 0; }
-            .nav a { padding: 11px 12px; font-size: 13px; }
+            /* Четыре раздела в одну строку на телефоне не помещаются, и
+               «Контакты» уезжали за край: чтобы их найти, надо было
+               догадаться провести пальцем вбок. Признака прокрутки не
+               было никакого. Разрешаем перенос — видно все четыре. */
+            .nav-row {
+                gap: 0; overflow-x: visible; flex-wrap: wrap;
+                padding-bottom: 2px;
+            }
+            .nav a {
+                padding: 10px 12px; font-size: 13px;
+                flex: 1 0 auto; justify-content: center;
+                min-height: 42px;
+            }
+            /* Ссылки в подвале — по пальцу, а не по строчке текста. */
+            .foot-links a { padding: 10px 0; }
+            .foot-item { margin-bottom: 10px; }
+            .cart-btn { min-height: 42px; }
+            .brand { padding: 5px 0; }
             .page { padding: 20px 0 36px; }
             .page-head h2 { font-size: 22px; }
             .panel { padding: 17px; }
+            /* Подписи мельче 11 пикселей на телефоне уже не читаются. */
+            .page-head .eyebrow, .foot-row h4 { font-size: 11px; }
+            .rows dt, .rows .k { font-size: 13.5px; }
+            /* Пары «подпись — значение» на узком экране складываем в
+               столбец: длинное значение прижималось к правому краю и
+               наезжало на подпись. */
+            .rows > div { flex-direction: column; gap: 2px; }
+            .rows dd, .rows .v { text-align: left; }
+            .btn-dark, .btn-mark, .btn-line { min-height: 44px; }
             .foot-row { grid-template-columns: 1fr; gap: 18px; }
         }
         @media (prefers-reduced-motion: reduce) {

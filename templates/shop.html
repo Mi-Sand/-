@@ -203,29 +203,6 @@
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
         .skeleton { animation: pulse 1.4s ease-in-out infinite; }
 
-        /* --- Подвал --------------------------------------------------- */
-        footer {
-            border-top: 1px solid var(--line); background: var(--surface);
-            padding: 28px 0 24px; color: var(--ink-2); font-size: 13px;
-        }
-        .foot-row {
-            display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 26px;
-            padding-bottom: 20px;
-        }
-        .foot-row h4 {
-            font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
-            text-transform: uppercase; color: var(--ink-3);
-            font-weight: 500; margin-bottom: 9px;
-        }
-        .foot-row p { color: var(--ink-2); font-size: 13px; }
-        .foot-item { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 7px; }
-        .foot-item .ic { color: var(--ink-3); margin-top: 1px; }
-        .foot-bottom {
-            border-top: 1px solid var(--line); padding-top: 16px;
-            color: var(--ink-3); font-size: 12.5px;
-            display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-        }
-
         /* --- Модальные окна ------------------------------------------- */
         .modal {
             display: none; position: fixed; inset: 0;
@@ -317,16 +294,15 @@
         }
         .btn-buy:hover:not(:disabled) { background: var(--mark-dark); }
         .btn-buy:disabled { background: var(--surface-alt); color: var(--ink-3); cursor: not-allowed; }
-        .btn-dark {
-            width: 100%; padding: 13px;
-            background: var(--slate-800); color: #fff;
-            border: none; border-radius: var(--r);
-            font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
-            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-            transition: background .12s;
+        /* Кнопка описана в общем шаблоне; здесь только то, что нужно
+           именно в окне: во всю ширину и вид при недоступности.
+           Повторять остальное нельзя — правка в общем шаблоне тогда
+           молча не действует на витрине. */
+        .modal .btn-dark { width: 100%; }
+        .btn-dark:disabled {
+            background: var(--surface-alt); color: var(--ink-3);
+            cursor: not-allowed;
         }
-        .btn-dark:hover:not(:disabled) { background: var(--slate-700); }
-        .btn-dark:disabled { background: var(--surface-alt); color: var(--ink-3); cursor: not-allowed; }
 
         /* --- Корзина -------------------------------------------------- */
         .cart-line {
@@ -422,6 +398,17 @@
             padding: 12px; margin: 10px 0 16px;
         }
 
+        /* --- Всплывающее сообщение -------------------------------------- */
+        .cw-toast {
+            position: fixed; bottom: 24px; left: 50%;
+            transform: translateX(-50%);
+            color: #fff; padding: 12px 20px; border-radius: var(--r);
+            font-weight: 600; font-size: 14px; z-index: 2000;
+            box-shadow: 0 6px 20px rgba(18,32,43,.28);
+            display: flex; align-items: center; gap: 8px;
+            max-width: calc(100vw - 32px);
+        }
+
         @media (max-width: 620px) {
             /* На телефоне полоса о производстве сжимается до сути: три
                строки без пояснений. Иначе покупатель прокручивает пол-экрана
@@ -441,6 +428,32 @@
             .modal-body { padding: 18px; }
             .modal-attrs { grid-template-columns: 1fr; }
             .modal-foot { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+            /* Пальцем в цель 30 пикселей не попасть — общепринятый
+               минимум около 44. Поднимаем всё, во что тычут. */
+            .modal-close { width: 42px; height: 42px; top: 10px; right: 12px; }
+            .modal-attrs select { padding: 11px 10px; min-height: 44px; }
+            .qty button { width: 42px; height: 42px; }
+            .icon-btn { width: 42px; height: 42px; margin-left: 6px; }
+            .qty-val { min-width: 38px; font-size: 15px; }
+
+            /* Строка корзины: слева название с ценой, справа кнопки —
+               на узком экране цена переносилась на вторую строку и
+               наезжала на кнопки. Складываем в столбец. */
+            .cart-line { flex-direction: column; align-items: stretch; gap: 10px; }
+            .cart-line .qty { justify-content: flex-end; }
+
+            /* Подписи мельче 11 пикселей на телефоне уже не читаются. */
+            .card-cat, .no-photo span { font-size: 11px; }
+            .modal-cat { font-size: 11px; }
+            .attr-label, .block-label { font-size: 11px; letter-spacing: .1em; }
+            .cart-limit { font-size: 12px; }
+
+            /* Сообщение уходит наверх: внизу окна прижаты к краю экрана,
+               и оно закрывало кнопку «Оформить заказ». Точное место —
+               под прилипшей шапкой, его считает cwToast: высота шапки
+               на телефоне зависит от того, в сколько строк легло меню. */
+            .cw-toast { bottom: auto; top: 14px; }
         }
         @media (prefers-reduced-motion: reduce) {
             *, .skeleton { transition: none !important; animation: none !important; }
@@ -971,12 +984,20 @@
         // могло бы попасть в разметку), а значок собирается здесь.
         function cwToast(text, color, iconName) {
             const box = document.createElement('div');
-            box.style.cssText = 'position:fixed; bottom:24px; left:50%;'
-                + 'transform:translateX(-50%); background:' + color + ';'
-                + 'color:#fff; padding:12px 20px; border-radius:6px;'
-                + 'font-weight:600; font-size:14px; z-index:2000;'
-                + 'box-shadow:0 6px 20px rgba(18,32,43,.28);'
-                + 'display:flex; align-items:center; gap:8px;';
+            // Оформление в классе, а не в строке: на телефоне сообщение
+            // должно всплывать сверху. Внизу оно ложилось поверх кнопки
+            // «Оформить заказ» — окна там прижаты к нижнему краю.
+            box.className = 'cw-toast';
+            box.style.background = color;
+            // На телефоне сообщение встаёт под шапкой, а не поверх неё:
+            // высота шапки там зависит от того, в сколько строк легло
+            // меню разделов, поэтому её берём с экрана, а не из стилей.
+            if (window.matchMedia('(max-width: 620px)').matches) {
+                const head = document.querySelector('.site-head');
+                if (head) {
+                    box.style.top = (head.getBoundingClientRect().bottom + 10) + 'px';
+                }
+            }
             if (iconName) {
                 const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 svg.setAttribute('class', 'ic');

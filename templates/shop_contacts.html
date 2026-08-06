@@ -67,6 +67,12 @@
         .contact-big .v a { text-decoration: none; }
         .contact-big .v.mono { letter-spacing: -.01em; }
         .contact-big .hint { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; }
+        @media (max-width: 620px) {
+            /* Подписи мельче 11 пикселей на телефоне не читаются. */
+            .contact-big .k { font-size: 11px; }
+            .contact-big { padding: 15px 0; }
+            .map-embed iframe { height: 300px; }
+        }
         .todo {
             display: inline-flex; align-items: center; gap: 6px;
             font-size: 12.5px; font-weight: 550; color: var(--stop);
