@@ -184,6 +184,11 @@ if (Test-Path $Database) {
     # Копия снимается средством самой SQLite, а не копированием файла:
     # часть свежих записей может находиться в служебном журнале рядом с
     # базой, и обычная копия рискует остаться без последних документов.
+    #
+    # Код кладётся во временный файл, а не передаётся через `python -c`:
+    # PowerShell на Windows разбирает строку с кавычками по своим правилам
+    # и до Python она доходит уже без них — получается SyntaxError вместо
+    # копии. Файл этой разборки не касается.
     $code = @'
 import sqlite3, sys
 connection = sqlite3.connect(sys.argv[1])
@@ -192,8 +197,18 @@ try:
 finally:
     connection.close()
 '@
-    & $VenvPython '-c' $code $Database $DatabaseBackup
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $DatabaseBackup)) {
+    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) `
+        ("leko_backup_{0}.py" -f [System.Guid]::NewGuid().ToString('N'))
+    Set-Content -Path $scriptFile -Value $code -Encoding ASCII
+
+    try {
+        & $VenvPython $scriptFile $Database $DatabaseBackup
+        $backupCode = $LASTEXITCODE
+    } finally {
+        Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($backupCode -ne 0 -or -not (Test-Path $DatabaseBackup)) {
         Stop-WithError 'не удалось скопировать базу. Обновление отменено.'
     }
     $sizeMb = [math]::Round((Get-Item $DatabaseBackup).Length / 1MB, 2)
