@@ -46,7 +46,9 @@ $Database = Join-Path $ProjectRoot 'db.sqlite3'
 $MediaDir = Join-Path $ProjectRoot 'media'
 $BackupRoot = Join-Path $ProjectRoot 'backups'
 
-$Stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm'
+# С секундами: если первый запуск не удался и обновление повторяют сразу
+# же, копия должна попасть в свою папку, а не в занятую предыдущей.
+$Stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
 $BackupDir = Join-Path $BackupRoot $Stamp
 $DatabaseBackup = Join-Path $BackupDir 'db.sqlite3'
 
@@ -197,6 +199,12 @@ try:
 finally:
     connection.close()
 '@
+    # VACUUM INTO отказывается писать поверх существующего файла, а не
+    # перезаписывает его. Убираем возможный остаток от прошлой попытки.
+    if (Test-Path $DatabaseBackup) {
+        Remove-Item $DatabaseBackup -Force
+    }
+
     $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) `
         ("leko_backup_{0}.py" -f [System.Guid]::NewGuid().ToString('N'))
     Set-Content -Path $scriptFile -Value $code -Encoding ASCII
@@ -241,6 +249,7 @@ Write-Note "Копия: $BackupDir"
 Write-Step 'Обновление кода'
 
 $IsGitRepo = Test-Path (Join-Path $ProjectRoot '.git')
+$HasGit = $null -ne (Get-Command git -ErrorAction SilentlyContinue)
 
 if ($NoPull) {
     Write-Note 'получение кода пропущено (-NoPull)'
@@ -248,6 +257,12 @@ if ($NoPull) {
 } elseif (-not $IsGitRepo) {
     Write-Note 'это не репозиторий git — код получить неоткуда'
     Write-Note 'распакуйте новую версию поверх папки и запустите с -NoPull'
+} elseif (-not $HasGit) {
+    # Папка из-под git есть, а самой программы нет: так бывает, когда
+    # проект скопировали с другого компьютера целиком.
+    Write-Warn 'git на этом компьютере не установлен — код обновить нечем'
+    Write-Note 'либо поставьте его с https://git-scm.com/download/win,'
+    Write-Note 'либо распакуйте новую версию поверх и запустите с -NoPull'
 } else {
     Push-Location $ProjectRoot
     try {
