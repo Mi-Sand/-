@@ -6,7 +6,7 @@ Linux и macOS) — отличаются только команды в терм
 
 ## Требования
 
-- **Python 3.9+** — скачать с https://www.python.org/downloads/
+- **Python 3.10 и новее** (проверено вплоть до 3.14) — скачать с https://www.python.org/downloads/
   При установке **обязательно** отметьте галочку **«Add python.exe to PATH»**
   на первом экране инсталлятора — без неё команда `python` не будет найдена.
 - **PowerShell** (уже есть в Windows 10/11) — рекомендуется вместо
@@ -84,15 +84,14 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 pip install -r requirements.txt
 ```
 
-### 6. Создать миграции и базу данных
+### 6. Создать базу данных
 
 ```powershell
-python manage.py makemigrations accounts warehouse inventory reports
 python manage.py migrate
 ```
 
-**Важно:** первая команда обязательна — без неё таблицы для моделей
-проекта (Material, Product, Stock и т. д.) не будут созданы.
+Миграции лежат в репозитории, `makemigrations` запускать не нужно —
+`migrate` создаст все таблицы сам.
 
 ### 7. Создать администратора
 
@@ -147,7 +146,6 @@ python manage.py runserver
 ```powershell
 cd warehouse_project
 docker-compose up -d
-docker-compose exec web python manage.py makemigrations accounts warehouse inventory reports
 docker-compose exec web python manage.py migrate
 docker-compose exec web python manage.py createsuperuser
 ```
@@ -213,6 +211,122 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/inbound-documents/1/process/" 
 `Invoke-RestMethod` рекомендуется явно кодировать тело запроса в UTF-8
 байты (как показано выше через `[System.Text.Encoding]::UTF8.GetBytes(...)`),
 иначе PowerShell 5.1 может отправить его в неверной кодировке.
+
+---
+## Обновление работающей системы
+
+Обновляется только код. База, фотографии товаров и файл настроек в
+репозитории не хранятся и остаются на месте.
+
+**Никогда не удаляйте папку и не распаковывайте новую версию на чистое
+место** — так теряются база и фотографии. Обновлять нужно поверх.
+
+| Останется | Заменится |
+|---|---|
+| `db.sqlite3` — вся база | код приложения |
+| `media\` — фотографии товаров | `templates\` — интерфейс |
+| `.env` — ваши настройки | `requirements.txt` |
+| `venv\` — окружение | миграции |
+
+### Одной командой
+
+Закройте окно с работающим сервером, затем в папке `deploy\windows`
+щёлкните по **`ОБНОВИТЬ.bat`**.
+
+Скрипт делает всё по порядку: снимает копию базы, фотографий и настроек,
+получает новый код, обновляет библиотеки, применяет миграции, собирает
+оформление и проверяет результат.
+
+**Если проверка не прошла, база автоматически возвращается из копии,**
+снятой в начале. Код при этом остаётся обновлённым — скрипт не откатывает
+его сам, чтобы не потерять ваши правки, если они были, но подсказывает,
+как это сделать.
+
+Полезные ключи:
+
+```powershell
+.\update.ps1 -SkipMedia   # не копировать фотографии (когда их много)
+.\update.ps1 -NoPull      # код уже распакован вручную, только доделать
+```
+
+Второй ключ нужен, если обновляетесь не через git, а распаковкой архива:
+сначала распакуйте файлы поверх папки, потом запустите скрипт с `-NoPull`.
+
+### Вручную
+
+Если хочется контролировать каждый шаг:
+
+```powershell
+cd D:\warehouse_project
+.\venv\Scripts\Activate.ps1
+
+# 1. Остановить систему — Ctrl+C в окне сервера
+
+# 2. Копия. Именно до всего остального
+mkdir backups\ручная -Force
+python -c "import sqlite3; c=sqlite3.connect('db.sqlite3'); c.execute('VACUUM INTO ?', ('backups/ручная/db.sqlite3',)); c.close()"
+Copy-Item media backups\ручная\media -Recurse -Force
+Copy-Item .env  backups\ручная\.env
+
+# 3. Код
+git pull
+
+# 4. Библиотеки
+pip install -r requirements.txt --upgrade
+
+# 5. База
+python manage.py migrate
+
+# 6. Оформление
+python manage.py collectstatic --noinput
+
+# 7. Проверка
+python manage.py checksetup
+```
+
+Копию снимайте **при остановленной системе**. SQLite держит часть свежих
+записей в служебном журнале рядом с базой, поэтому копия «на ходу» может
+оказаться без последних проведённых документов — молча, без ошибки.
+Команда с `VACUUM INTO` выше обходит это: она снимает согласованную копию
+средствами самой SQLite.
+
+### После обновления
+
+`checksetup` не формальность: он ловит именно то, что ломается при
+обновлении — неприменённые миграции, несобранную статику, несовместимые
+версии библиотек.
+
+Но он не увидит, если поехала вёрстка. Откройте руками две-три рабочие
+страницы: приход, отчёты, витрину.
+
+### Чего не делать
+
+**Не обновляйте библиотеки поодиночке.** Команда вида
+`pip install django-filter --upgrade` без ограничений подтягивает
+несовместимые версии — именно так система однажды перестала запускаться.
+Только `pip install -r requirements.txt --upgrade`: в этом файле границы
+версий, проверенные на тестах.
+
+**Не пропускайте `migrate`.** Симптом — страница падает с ошибкой про
+несуществующий столбец. Выглядит как поломка кода, а на деле база просто
+отстала от него.
+
+### Если что-то сломалось
+
+Обратных миграций в проекте нет, поэтому откат — это восстановление
+копии, а не «отменить migrate»:
+
+```powershell
+# остановить систему, затем
+Copy-Item backups\2026-08-06_12-30\db.sqlite3 db.sqlite3 -Force
+git log --oneline -5                 # найти предыдущую версию
+git checkout <номер-коммита>
+pip install -r requirements.txt --upgrade
+python manage.py checksetup
+```
+
+Копии лежат в папке `backups`, каждая в своей подпапке с датой и временем.
+Удалять их можно, когда убедитесь, что обновление прижилось.
 
 ---
 
@@ -317,7 +431,6 @@ python -m venv venv
 pip install -r requirements.txt
 
 # 4. База данных
-python manage.py makemigrations accounts warehouse inventory reports
 python manage.py migrate
 
 # 5. Администратор
