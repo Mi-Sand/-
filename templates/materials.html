@@ -271,6 +271,7 @@
                 <td>${m.reorder_point}</td>
                 <td><div class="row-actions">
                     ${can('catalog') ? `<button class="act act-edit" title="Редактировать" onclick="editMaterial(${m.id})"><svg class="ic"><use href="#i-edit"></use></svg></button>` : ''}
+                    ${can('catalog') ? `<button class="act act-copy" title="Копировать" onclick="copyMaterial(${m.id})"><svg class="ic"><use href="#i-clipboard"></use></svg></button>` : ''}
                     ${can('catalog') ? `<button class="act act-del" title="Удалить" onclick="deleteMaterial(${m.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>` : ''}
                 </div></td>
             </tr>
@@ -297,6 +298,27 @@
         document.getElementById('category').value = m.category;
         document.getElementById('reorder_point').value = m.reorder_point;
         document.getElementById('materialModal').classList.add('active');
+    }
+
+    function copyMaterial(id) {
+        // Копия нужна для разновидностей одного материала: та же кожа,
+        // но другого цвета. Переносим всё, кроме артикула — он у каждой
+        // позиции свой, и подставленный чужой ушёл бы в базу незаметно.
+        const m = allMaterials.find(x => x.id === id);
+        if (!m) return;
+        currentEditId = null;  // создаём НОВЫЙ материал, а не правим этот
+        document.getElementById('modalTitle').textContent = 'Копия материала';
+        document.getElementById('materialForm').reset();
+        document.getElementById('name').value = m.name;
+        document.getElementById('article_number').value = '';
+        document.getElementById('color').value = m.color || '';
+        document.getElementById('description').value = m.description || '';
+        document.getElementById('unit').value = m.unit;
+        document.getElementById('category').value = m.category;
+        document.getElementById('reorder_point').value = m.reorder_point;
+        showMessage('<svg class="ic"><use href="#i-clipboard"></use></svg> Данные скопированы. Измените наименование или цвет.', 'success');
+        document.getElementById('materialModal').classList.add('active');
+        document.getElementById('name').focus();
     }
 
     function closeModal() {

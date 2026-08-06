@@ -151,6 +151,7 @@
                 <td>${esc(s.email || '—')}</td>
                 <td><div class="row-actions">
                     <button class="act act-edit" title="Редактировать" onclick='editSupplier(${JSON.stringify(s)})'><svg class="ic"><use href="#i-edit"></use></svg></button>
+                    <button class="act act-copy" title="Копировать" onclick='copySupplier(${JSON.stringify(s)})'><svg class="ic"><use href="#i-clipboard"></use></svg></button>
                     <button class="act act-del" title="Удалить" onclick="deleteItem('suppliers', ${s.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>
                 </div></td>
             </tr>`).join('')}
@@ -170,6 +171,7 @@
                 <td>${w.capacity || '—'}</td>
                 <td><div class="row-actions">
                     <button class="act act-edit" title="Редактировать" onclick='editWarehouse(${JSON.stringify(w)})'><svg class="ic"><use href="#i-edit"></use></svg></button>
+                    <button class="act act-copy" title="Копировать" onclick='copyWarehouse(${JSON.stringify(w)})'><svg class="ic"><use href="#i-clipboard"></use></svg></button>
                     <button class="act act-del" title="Удалить" onclick="deleteItem('warehouses', ${w.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>
                 </div></td>
             </tr>`).join('')}
@@ -208,6 +210,35 @@
         document.getElementById('w_location').value = w.location || '';
         document.getElementById('w_capacity').value = w.capacity || '';
         document.getElementById('warehouseModal').classList.add('active');
+    }
+
+    function copySupplier(s) {
+        // ИНН не переносим: он принадлежит конкретному юридическому лицу.
+        // Скопированный чужой ИНН попал бы в счета и акты сверки.
+        editId = null;  // создаём НОВОГО поставщика, а не правим этого
+        document.getElementById('supplierTitle').textContent = 'Копия поставщика';
+        document.getElementById('supplierForm').reset();
+        document.getElementById('s_name').value = s.name;
+        document.getElementById('s_inn').value = '';
+        document.getElementById('s_contact').value = s.contact_person || '';
+        document.getElementById('s_phone').value = s.phone || '';
+        document.getElementById('s_email').value = s.email || '';
+        showMessage('<svg class="ic"><use href="#i-clipboard"></use></svg> Данные скопированы. Измените наименование и укажите ИНН.', 'success');
+        document.getElementById('supplierModal').classList.add('active');
+        document.getElementById('s_name').focus();
+    }
+
+    function copyWarehouse(w) {
+        editId = null;  // создаём НОВЫЙ склад, а не правим этот
+        document.getElementById('warehouseTitle').textContent = 'Копия склада';
+        document.getElementById('warehouseForm').reset();
+        document.getElementById('w_name').value = w.name;
+        document.getElementById('w_type').value = w.type;
+        document.getElementById('w_location').value = w.location || '';
+        document.getElementById('w_capacity').value = w.capacity || '';
+        showMessage('<svg class="ic"><use href="#i-clipboard"></use></svg> Данные скопированы. Измените наименование склада.', 'success');
+        document.getElementById('warehouseModal').classList.add('active');
+        document.getElementById('w_name').focus();
     }
 
     function closeModals() {
