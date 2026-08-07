@@ -57,6 +57,7 @@ class Command(BaseCommand):
         self._check_users()
         self._check_reference_data()
         self._check_email()
+        self._check_backups()
 
         return self._report()
 
@@ -158,8 +159,9 @@ class Command(BaseCommand):
             if path.exists():
                 size = path.stat().st_size / 1024 / 1024
                 self.note(f'SQLite, файл {path.name}, {size:.1f} МБ. '
-                          f'Для резервной копии достаточно скопировать его '
-                          f'при остановленной системе.')
+                          f'Копию снимайте командой backup, а не копированием '
+                          f'файла: часть свежих записей лежит в служебном '
+                          f'журнале рядом с базой и в копию не попадёт.')
 
     def _check_migrations(self):
         try:
@@ -262,6 +264,51 @@ class Command(BaseCommand):
                       'Заполните EMAIL_HOST в .env — см. SMTP_SETUP.md')
         else:
             self.ok(f'Почта: {settings.EMAIL_HOST}')
+
+    def _check_backups(self):
+        """Давно ли снимали копию.
+
+        Проверка не о том, настроено ли расписание — узнать это надёжно
+        нельзя, задание может стоять на другом компьютере или копии могут
+        уноситься куда-то ещё. Смотрим на итог: есть ли свежая копия. Если
+        последней больше недели, значит что-то сломалось или её не
+        настраивали вовсе.
+        """
+        from datetime import datetime, timedelta
+
+        root = Path(settings.BASE_DIR) / 'backups'
+        folders = []
+        if root.exists():
+            for path in root.iterdir():
+                if not path.is_dir():
+                    continue
+                try:
+                    folders.append(
+                        datetime.strptime(path.name[:19], '%Y-%m-%d_%H-%M-%S'))
+                except ValueError:
+                    continue
+
+        if not folders:
+            self.warn(
+                'Резервных копий нет',
+                'Настройте ежедневное копирование: в папке deploy\\windows '
+                'выполните .\\НАСТРОИТЬ-КОПИИ.ps1 -To D:\\Копии\\Склад. '
+                'База лежит в одном файле — без копии отказ диска означает '
+                'потерю всего учёта.')
+            return
+
+        last = max(folders)
+        days = (datetime.now() - last).days
+        if days > 7:
+            self.warn(
+                f'Последняя резервная копия {days} дн. назад '
+                f'({last:%d.%m.%Y})',
+                'Похоже, копирование не работает. Проверьте задание в '
+                'планировщике Windows или снимите копию вручную: '
+                'deploy\\windows\\backup.ps1')
+        else:
+            self.ok(f'Резервные копии: последняя {last:%d.%m.%Y %H:%M}, '
+                    f'всего {len(folders)}')
 
     # --- Вывод --------------------------------------------------------------
     def ok(self, text):

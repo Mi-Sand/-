@@ -46,11 +46,11 @@ $Database = Join-Path $ProjectRoot 'db.sqlite3'
 $MediaDir = Join-Path $ProjectRoot 'media'
 $BackupRoot = Join-Path $ProjectRoot 'backups'
 
-# С секундами: если первый запуск не удался и обновление повторяют сразу
-# же, копия должна попасть в свою папку, а не в занятую предыдущей.
-$Stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
-$BackupDir = Join-Path $BackupRoot $Stamp
-$DatabaseBackup = Join-Path $BackupDir 'db.sqlite3'
+# Точное имя папки с копией назначает команда backup — оно станет
+# известно после её работы. До тех пор указываем на общий каталог: если
+# что-то сорвётся ещё до копирования, в сообщении будет хотя бы он.
+$BackupDir = $BackupRoot
+$DatabaseBackup = ''
 
 
 # ============================================================================
@@ -180,68 +180,31 @@ if (Test-SystemRunning) {
 # --- 1. Резервная копия -----------------------------------------------------
 Write-Step 'Резервная копия'
 
-New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
+# Копию снимает команда `manage.py backup`: она же используется для
+# ежедневных копий по расписанию. Держать здесь второй, свой способ
+# копирования — верный путь к тому, что однажды они разойдутся и один
+# из них окажется хуже. Команда, помимо копирования, проверяет копию:
+# открывает её и сверяет число записей с базой.
+$backupArgs = @('manage.py', 'backup', '--to', $BackupRoot, '--keep', '0')
+if ($SkipMedia) { $backupArgs += '--no-media' }
 
-if (Test-Path $Database) {
-    # Копия снимается средством самой SQLite, а не копированием файла:
-    # часть свежих записей может находиться в служебном журнале рядом с
-    # базой, и обычная копия рискует остаться без последних документов.
-    #
-    # Код кладётся во временный файл, а не передаётся через `python -c`:
-    # PowerShell на Windows разбирает строку с кавычками по своим правилам
-    # и до Python она доходит уже без них — получается SyntaxError вместо
-    # копии. Файл этой разборки не касается.
-    $code = @'
-import sqlite3, sys
-connection = sqlite3.connect(sys.argv[1])
-try:
-    connection.execute("VACUUM INTO ?", (sys.argv[2],))
-finally:
-    connection.close()
-'@
-    # VACUUM INTO отказывается писать поверх существующего файла, а не
-    # перезаписывает его. Убираем возможный остаток от прошлой попытки.
-    if (Test-Path $DatabaseBackup) {
-        Remove-Item $DatabaseBackup -Force
-    }
-
-    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) `
-        ("leko_backup_{0}.py" -f [System.Guid]::NewGuid().ToString('N'))
-    Set-Content -Path $scriptFile -Value $code -Encoding ASCII
-
-    try {
-        & $VenvPython $scriptFile $Database $DatabaseBackup
-        $backupCode = $LASTEXITCODE
-    } finally {
-        Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-    }
-
-    if ($backupCode -ne 0 -or -not (Test-Path $DatabaseBackup)) {
-        Stop-WithError 'не удалось скопировать базу. Обновление отменено.'
-    }
-    $sizeMb = [math]::Round((Get-Item $DatabaseBackup).Length / 1MB, 2)
-    Write-Ok "база данных — $sizeMb МБ"
-} else {
-    Write-Note 'файла базы нет — вероятно, используется PostgreSQL'
-    Write-Warn 'копию базы PostgreSQL снимите отдельно, командой pg_dump'
+Push-Location $ProjectRoot
+try {
+    & $VenvPython @backupArgs
+    $backupCode = $LASTEXITCODE
+} finally {
+    Pop-Location
 }
 
-if (-not $SkipMedia -and (Test-Path $MediaDir)) {
-    Copy-Item $MediaDir (Join-Path $BackupDir 'media') -Recurse -Force
-    $count = @(Get-ChildItem (Join-Path $BackupDir 'media') -Recurse -File `
-        -ErrorAction SilentlyContinue).Count
-    Write-Ok "фотографии товаров — $count файлов"
-} elseif ($SkipMedia) {
-    Write-Note 'копирование фотографий пропущено (-SkipMedia)'
+if ($backupCode -ne 0) {
+    Stop-WithError 'не удалось снять копию. Обновление отменено.'
 }
 
-# .env копируем всегда: он маленький, а восстанавливать настройки руками
-# по памяти — дело неприятное
-$EnvFile = Join-Path $ProjectRoot '.env'
-if (Test-Path $EnvFile) {
-    Copy-Item $EnvFile (Join-Path $BackupDir '.env') -Force
-    Write-Ok 'файл настроек .env'
-}
+# Команда сама выбирает имя папки по времени — забираем самую свежую,
+# чтобы знать, откуда восстанавливать при неудаче.
+$BackupDir = (Get-ChildItem $BackupRoot -Directory |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+$DatabaseBackup = Join-Path $BackupDir 'db.sqlite3'
 
 Write-Note "Копия: $BackupDir"
 
