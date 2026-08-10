@@ -640,13 +640,18 @@
                обычным блоком справа. Через флекс не выходит: в ячейке
                бывает несколько кусков («150» и «шт.»), и флекс растащил
                бы их по разным краям. */
-            table td {
+            /* Селектор с tbody нужен для веса: свои стили страниц
+               подключаются к этому же набору ниже, и обычное `table td`
+               с отступом 12px оказывалось сильнее — подпись столбца
+               наезжала на значение. Разбираться в этом на каждой новой
+               странице заново не стоит. */
+            table tbody td {
                 display: block; position: relative;
                 padding: 9px 13px 9px 46%; text-align: right;
                 border-bottom: 1px solid var(--line); min-height: 40px;
             }
-            table td:last-child { border-bottom: none; }
-            table td::before {
+            table tbody td:last-child { border-bottom: none; }
+            table tbody td::before {
                 content: attr(data-label);
                 position: absolute; left: 13px; top: 9px; width: 42%;
                 font-family: var(--mono); font-size: 10.5px; font-weight: 500;
@@ -656,12 +661,12 @@
             }
             /* Ячейка без подписи (строка «ничего не найдено», кнопки
                действий) занимает всю ширину. */
-            table td[data-label=""], table td.no-label,
-            table td:has(.row-actions) { padding-left: 13px; }
-            table td[data-label=""]::before,
-            table td.no-label::before,
-            table td:has(.row-actions)::before { content: none; }
-            table td .row-actions { justify-content: flex-end; }
+            table tbody td[data-label=""], table tbody td.no-label,
+            table tbody td:has(.row-actions) { padding-left: 13px; }
+            table tbody td[data-label=""]::before,
+            table tbody td.no-label::before,
+            table tbody td:has(.row-actions)::before { content: none; }
+            table tbody td .row-actions { justify-content: flex-end; }
             /* Кнопки действий — под палец. */
             table .act { width: 40px; height: 40px; }
         }
@@ -712,6 +717,8 @@
                     <svg class="ic"><use href="#i-clipboard"></use></svg>Инвентаризация</a>
                 <a href="/reports/" class="{% if active == 'reports' %}active{% endif %}">
                     <svg class="ic"><use href="#i-chart"></use></svg>Отчёты</a>
+                <a href="/audit/" class="{% if active == 'audit' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-history"></use></svg>Журнал действий</a>
                 {% if user.is_superuser or user.role == 'admin' %}
                 <a href="/employees/" class="{% if active == 'employees' %}active{% endif %}">
                     <svg class="ic"><use href="#i-users"></use></svg>Сотрудники</a>

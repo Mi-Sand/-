@@ -11,6 +11,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path, re_path
 from rest_framework.routers import DefaultRouter
 
+from audit.views import AuditEntryViewSet, audit_page
 from inventory.views import InventoryViewSet
 from reports import views as report_views
 from warehouse import views as wh_views
@@ -33,6 +34,7 @@ router.register(r'movements', wh_views.StockMovementViewSet)
 router.register(r'users', UserViewSet)
 router.register(r'orders', OrderViewSet)
 router.register(r'inventories', InventoryViewSet)
+router.register(r'audit', AuditEntryViewSet)
 
 api_urlpatterns = [
     path('api/', include(router.urls)),
@@ -83,6 +85,7 @@ page_urlpatterns = [
     path('production/', pages.production_page, name='production-page'),
     path('employees/', pages.employees_page, name='employees-page'),
     path('orders/', pages.orders_page, name='orders-page'),
+    path('audit/', audit_page, name='audit-page'),
 ]
 
 urlpatterns = [

@@ -1,0 +1,291 @@
+{% extends 'base.html' %}
+{% block title %}Журнал действий | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-history"></use></svg> Журнал действий{% endblock %}
+
+{% block extra_css %}
+    .filters {
+        display: grid; gap: 10px; margin-bottom: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        align-items: end;
+    }
+    .filters label {
+        display: block; font-size: 12px; color: var(--ink-3);
+        margin-bottom: 4px;
+    }
+    .filters select, .filters input {
+        width: 100%; padding: 8px 10px; font-family: inherit; font-size: 14px;
+        border: 1px solid var(--line-strong); border-radius: 4px;
+        background: var(--surface); color: var(--ink);
+    }
+    .filters input[type="date"] { font-family: var(--mono); }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    table th {
+        background: var(--surface-alt); padding: 10px 12px; text-align: left;
+        font-weight: 600; border-bottom: 2px solid var(--line-strong);
+        white-space: nowrap;
+    }
+    /* Только для широкого экрана: на узком base.html разворачивает
+       таблицу в карточки со своими отступами, а это правило идёт в
+       общем наборе стилей позже и перебило бы их — подпись столбца
+       наехала бы на значение. */
+    @media (min-width: 721px) {
+        table td {
+            padding: 10px 12px; border-bottom: 1px solid var(--line);
+            vertical-align: top;
+        }
+    }
+    table tr:hover { background: var(--surface-alt); }
+
+    .when { font-family: var(--mono); font-variant-numeric: tabular-nums;
+        white-space: nowrap; color: var(--ink-2); }
+    .who { white-space: nowrap; }
+    .system { color: var(--ink-3); font-style: italic; }
+    .kind { color: var(--ink-3); font-size: 12px; display: block; }
+
+    .act-tag {
+        display: inline-block; padding: 3px 9px; border-radius: 3px;
+        font-size: 12px; white-space: nowrap;
+    }
+    .act-create { background: var(--ok-soft); color: var(--ok); }
+    .act-change { background: var(--info-soft); color: var(--info); }
+    .act-delete { background: var(--stop-soft); color: var(--stop); }
+
+    .changes { margin: 0; font-size: 13px; color: var(--ink-2); }
+    .changes div { margin-bottom: 2px; }
+    .changes .fld { color: var(--ink-3); }
+    .was { text-decoration: line-through; color: var(--ink-3); }
+    .now { color: var(--ink); }
+    .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+    .loading, .empty { text-align: center; padding: 40px; color: var(--ink-3); }
+    .more { text-align: center; margin: 16px 0; }
+    .count { color: var(--ink-3); font-size: 13px; margin-top: 12px; }
+    .count .num { color: var(--ink-2); }
+
+    @media (max-width: 720px) {
+        .filters { grid-template-columns: 1fr 1fr; }
+    }
+{% endblock %}
+
+{% block content %}
+<div class="note-line" style="color: var(--ink-3); font-size: 13px; margin-bottom: 14px;">
+    Кто и когда менял справочники, документы и заказы. Записи журнала
+    не правятся и не удаляются.
+</div>
+
+<div class="filters">
+    <div>
+        <label for="fUser">Сотрудник</label>
+        <select id="fUser"><option value="">все</option></select>
+    </div>
+    <div>
+        <label for="fAction">Действие</label>
+        <select id="fAction">
+            <option value="">любое</option>
+            <option value="create">Создание</option>
+            <option value="change">Изменение</option>
+            <option value="delete">Удаление</option>
+        </select>
+    </div>
+    <div>
+        <label for="fModel">Вид записи</label>
+        <select id="fModel"><option value="">любой</option></select>
+    </div>
+    <div>
+        <label for="fSince">С даты</label>
+        <input type="date" id="fSince">
+    </div>
+    <div>
+        <label for="fUntil">По дату</label>
+        <input type="date" id="fUntil">
+    </div>
+    <div>
+        <label for="fSearch">Название записи</label>
+        <input type="text" id="fSearch" placeholder="часть названия">
+    </div>
+</div>
+
+<div id="area"><div class="loading">Загрузка...</div></div>
+<div class="more" id="more"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Виды записей — те же, за какими следит журнал на стороне сервера.
+    // Список короткий и меняется вместе с ним, поэтому держится здесь,
+    // а не запрашивается отдельным обращением.
+    const KINDS = [
+        ['warehouse.Material', 'Материал'],
+        ['warehouse.Product', 'Продукция'],
+        ['warehouse.Warehouse', 'Склад'],
+        ['warehouse.Supplier', 'Поставщик'],
+        ['warehouse.InboundDocument', 'Приход'],
+        ['warehouse.OutboundDocument', 'Расход'],
+        ['warehouse.Order', 'Заказ'],
+        ['warehouse.ProductionRun', 'Выпуск продукции'],
+        ['inventory.Inventory', 'Инвентаризация'],
+        ['accounts.User', 'Сотрудник'],
+    ];
+
+    const PORTION = 50;      // сколько записей забирать за раз
+    let nextOffset = 0;      // откуда продолжать
+    let total = 0;
+
+    function when(value) {
+        const d = new Date(value);
+        if (isNaN(d)) return '';
+        const two = n => String(n).padStart(2, '0');
+        return `${two(d.getDate())}.${two(d.getMonth() + 1)}.${d.getFullYear()} ` +
+               `${two(d.getHours())}:${two(d.getMinutes())}`;
+    }
+
+    // Значение похоже на число — показать моноширинным, чтобы цены и
+    // количества в столбце выстраивались разряд под разряд.
+    function value(text) {
+        const cls = /^-?\d[\d\s.,]*$/.test(text) ? 'num' : '';
+        return `<span class="${cls}">${esc(text)}</span>`;
+    }
+
+    function changes(entry) {
+        const fields = Object.values(entry.changes || {});
+        if (!fields.length) {
+            return '<span class="system">без изменений полей</span>';
+        }
+        return `<div class="changes">${fields.map(f => {
+            const title = esc(f.title || '');
+            if (entry.action === 'create') {
+                return `<div><span class="fld">${title}:</span> ` +
+                       `<span class="now">${value(f.now)}</span></div>`;
+            }
+            if (entry.action === 'delete') {
+                return `<div><span class="fld">${title}:</span> ` +
+                       `<span class="was">${value(f.was)}</span></div>`;
+            }
+            return `<div><span class="fld">${title}:</span> ` +
+                   `<span class="was">${value(f.was || 'пусто')}</span> ` +
+                   `${icon('arrow-right', 'ic-sm')} ` +
+                   `<span class="now">${value(f.now || 'пусто')}</span></div>`;
+        }).join('')}</div>`;
+    }
+
+    function row(entry) {
+        const who = entry.user_label
+            ? `<span class="who">${esc(entry.user_label)}</span>`
+            : '<span class="system">система</span>';
+        const number = entry.object_id
+            ? `<span class="num">№${entry.object_id}</span>` : '';
+        return `<tr>
+            <td class="when">${when(entry.happened_at)}</td>
+            <td>${who}</td>
+            <td><span class="act-tag act-${esc(entry.action)}">${esc(entry.action_display)}</span></td>
+            <td><strong>${esc(entry.object_label || '—')}</strong>
+                <span class="kind">${esc(entry.model_title || entry.model_label)} ${number}</span></td>
+            <td>${changes(entry)}</td>
+        </tr>`;
+    }
+
+    function query(offset) {
+        const parts = [`limit=${PORTION}`, `offset=${offset}`];
+        const add = (name, id) => {
+            const raw = document.getElementById(id).value.trim();
+            if (raw) parts.push(`${name}=${encodeURIComponent(raw)}`);
+        };
+        add('user', 'fUser');
+        add('action', 'fAction');
+        add('model', 'fModel');
+        add('since', 'fSince');
+        add('until', 'fUntil');
+        add('search', 'fSearch');
+        return `/audit/?${parts.join('&')}`;
+    }
+
+    async function load(append) {
+        const area = document.getElementById('area');
+        const more = document.getElementById('more');
+        if (!append) {
+            nextOffset = 0;
+            area.innerHTML = '<div class="loading">Загрузка...</div>';
+        }
+        more.innerHTML = '';
+
+        let data;
+        try {
+            data = await apiCall(query(nextOffset));
+        } catch (error) {
+            area.innerHTML = `<div class="empty">Не удалось загрузить журнал: ${esc(error.message)}</div>`;
+            return;
+        }
+
+        const list = data.results || [];
+        total = data.count || 0;
+
+        if (!append) {
+            if (!list.length) {
+                area.innerHTML = '<div class="empty">Записей по таким условиям нет</div>';
+                return;
+            }
+            area.innerHTML = `<table><thead><tr>
+                <th>Когда</th><th>Кто</th><th>Действие</th>
+                <th>Что за запись</th><th>Что изменилось</th>
+            </tr></thead><tbody>${list.map(row).join('')}</tbody></table>
+            <div class="count">Показано <span class="num" id="shown"></span>
+            из <span class="num">${total}</span></div>`;
+        } else {
+            area.querySelector('tbody').insertAdjacentHTML(
+                'beforeend', list.map(row).join(''));
+        }
+
+        nextOffset += list.length;
+        const shown = document.getElementById('shown');
+        if (shown) shown.textContent = nextOffset;
+
+        if (nextOffset < total) {
+            more.innerHTML =
+                '<button class="btn btn-secondary" onclick="load(true)">Показать ещё</button>';
+        }
+    }
+
+    async function fillUsers() {
+        try {
+            const users = await apiCallAll('/users/');
+            const select = document.getElementById('fUser');
+            users.forEach(u => {
+                const option = document.createElement('option');
+                option.value = u.id;
+                option.textContent = u.full_name || u.username;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            // Список сотрудников открыт не всем ролям. Отбор по
+            // сотруднику тогда останется пустым — сам журнал от этого
+            // не страдает, и мешать ему сообщением об ошибке незачем.
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const select = document.getElementById('fModel');
+        KINDS.forEach(([label, title]) => {
+            const option = document.createElement('option');
+            option.value = label;
+            option.textContent = title;
+            select.appendChild(option);
+        });
+
+        ['fUser', 'fAction', 'fModel', 'fSince', 'fUntil'].forEach(id =>
+            document.getElementById(id).addEventListener(
+                'change', () => load(false)));
+
+        // Поиск по названию — с задержкой: иначе запрос уходит на
+        // каждую нажатую букву.
+        let timer = null;
+        document.getElementById('fSearch').addEventListener('input', () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => load(false), 350);
+        });
+
+        fillUsers();
+        load(false);
+    });
+</script>
+{% endblock %}

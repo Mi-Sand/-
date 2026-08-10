@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     'warehouse',
     'inventory',
     'reports',
+    'audit',
 ]
 
 MIDDLEWARE = [
@@ -81,6 +82,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Запоминает вошедшего сотрудника: журналу действий он нужен в
+    # сигналах, куда запрос не передаётся. Идёт после проверки входа —
+    # раньше пользователя ещё нет.
+    'audit.current_user.CurrentUserMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

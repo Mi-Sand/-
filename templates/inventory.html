@@ -3,7 +3,6 @@
 {% block page_title %}<svg class="ic"><use href="#i-clipboard"></use></svg> Инвентаризация{% endblock %}
 
 {% block extra_css %}
-<style>
     .inv-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-top: 20px; }
     .inv-card { background: white; border: 1px solid var(--line-strong); border-radius: 8px; padding: 18px; }
     .inv-card:hover { border-color: var(--slate-800); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
@@ -43,7 +42,6 @@
     table input { width: 100px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 4px; }
     .diff-neg { color: var(--stop); font-weight: 600; }
     .diff-pos { color: var(--ok); font-weight: 600; }
-</style>
 {% endblock %}
 
 {% block content %}
