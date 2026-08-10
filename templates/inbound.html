@@ -155,12 +155,14 @@
 <div id="message"></div>
 
 <div class="toolbar">
-    <span class="search-wrap"><svg class="ic"><use href="#i-search"></use></svg><input type="text" id="search" placeholder="Поиск по номеру документа" style="flex:1; min-width:200px;"></span>
+    <span class="search-wrap"><svg class="ic"><use href="#i-search"></use></svg><input type="text" id="search" placeholder="Номер, поставщик или товар" style="flex:1; min-width:200px;"></span>
     <select id="filterStatus">
         <option value="">Все документы</option>
         <option value="false">Не проведены</option>
         <option value="true">Проведены</option>
     </select>
+    <label class="date-filter">с <input type="date" id="since"></label>
+    <label class="date-filter">по <input type="date" id="until"></label>
     <button class="btn btn-ghost" onclick="loadDocuments()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
     {% if user_perms.documents %}<button class="btn btn-primary" onclick="openCreateModal()">+ Новый приход</button>{% endif %}
 </div>
@@ -232,18 +234,22 @@
             document.getElementById('content').style.display = 'none';
             
             const filterStatus = document.getElementById('filterStatus').value;
-            let url = '/inbound-documents/';
-            if (filterStatus !== '') {
-                url += `?processed=${filterStatus}`;
-            }
+            // Отбор делает сервер: искать по поставщику и товару в
+            // браузере значило бы сначала забрать все документы, а при
+            // тысяче документов ради трёх нужных это дорого.
+            const parts = [];
+            if (filterStatus !== '') parts.push(`processed=${filterStatus}`);
+            const add = (name, id) => {
+                const raw = document.getElementById(id).value.trim();
+                if (raw) parts.push(`${name}=${encodeURIComponent(raw)}`);
+            };
+            add('search', 'search');
+            add('since', 'since');
+            add('until', 'until');
+            const url = '/inbound-documents/'
+                + (parts.length ? `?${parts.join('&')}` : '');
 
-            let docs = await apiCallAll(url);
-
-            // Фильтр по номеру документа (поиск)
-            const search = document.getElementById('search').value.toLowerCase().trim();
-            if (search) {
-                docs = docs.filter(d => d.doc_number.toLowerCase().includes(search));
-            }
+            const docs = await apiCallAll(url);
             
             const html = docs.map(doc => `
                 <div class="doc-card">
@@ -254,7 +260,7 @@
                         </span>
                     </div>
                     <div class="doc-info">
-                        <svg class="ic"><use href="#i-calendar"></use></svg> ${doc.doc_date}<br>
+                        <svg class="ic"><use href="#i-calendar"></use></svg> ${ruDate(doc.doc_date)}<br>
                         <svg class="ic"><use href="#i-factory"></use></svg> ${esc(doc.supplier_name)}<br>
                         <svg class="ic"><use href="#i-box"></use></svg> ${esc(doc.warehouse_name)}<br>
                         <svg class="ic"><use href="#i-ruble"></use></svg> Сумма: ${doc.total_sum} руб.
@@ -279,6 +285,9 @@
                         `}
                         <button class="btn-small btn-info" onclick="viewDocument(${doc.id})">
                             <svg class="ic"><use href="#i-eye"></use></svg> Просмотр
+                        </button>
+                        <button class="btn-small" onclick="printDocument(${doc.id})">
+                            <svg class="ic"><use href="#i-print"></use></svg> Печать
                         </button>
                         ${!doc.processed ? `
                             <button class="btn-small btn-danger" onclick="deleteDocument(${doc.id})">
@@ -426,6 +435,12 @@
         document.getElementById('createModal').classList.remove('active');
     }
 
+    // Печатная форма открывается отдельной вкладкой: так список
+    // документов остаётся на месте, а печатать можно несколько подряд.
+    function printDocument(id) {
+        window.open(`/print/inbound/${id}/`, '_blank');
+    }
+
     async function viewDocument(id) {
         try {
             const doc = await apiCall(`/inbound-documents/${id}/`);
@@ -438,7 +453,7 @@
                 </div>
             `).join('');
             document.getElementById('viewBody').innerHTML = `
-                <p><strong>Дата:</strong> ${doc.doc_date}</p>
+                <p><strong>Дата:</strong> ${ruDate(doc.doc_date)}</p>
                 <p><strong>Поставщик:</strong> ${esc(doc.supplier_name)}</p>
                 <p><strong>Склад:</strong> ${esc(doc.warehouse_name)}</p>
                 <p><strong>Статус:</strong> ${doc.processed ? 'Проведён' : '<svg class="ic"><use href="#i-clock"></use></svg> Не проведён'}</p>
@@ -518,7 +533,14 @@
 
     document.getElementById('createForm').addEventListener('submit', saveInboundDocument);
     document.getElementById('filterStatus').addEventListener('change', loadDocuments);
-    document.getElementById('search').addEventListener('input', loadDocuments);
+    // Поиск с задержкой: иначе запрос уходит на каждую нажатую букву.
+    let searchTimer = null;
+    document.getElementById('search').addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(loadDocuments, 350);
+    });
+    document.getElementById('since').addEventListener('change', loadDocuments);
+    document.getElementById('until').addEventListener('change', loadDocuments);
     loadDocuments();
 </script>
 {% endblock %}

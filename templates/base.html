@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Значок вкладки. Встроен прямо в страницу: отдельный файл
+         пришлось бы просить с сервера, а без него браузер каждый раз
+         спрашивал /favicon.ico и получал отказ. Рисунок тот же, что
+         в заголовке: короб под охряной разметкой. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2032%2032%27%3E%3Crect%20width=%2732%27%20height=%2732%27%20rx=%276%27%20fill=%27%2312202B%27/%3E%3Cpath%20d=%27M7%2013%2016%208l9%205v11H7z%27%20fill=%27none%27%20stroke=%27%23D98A1F%27%20stroke-width=%272%27%20stroke-linejoin=%27round%27/%3E%3Cpath%20d=%27M7%2013l9%205%209-5%27%20fill=%27none%27%20stroke=%27%23D98A1F%27%20stroke-width=%272%27%20stroke-linejoin=%27round%27/%3E%3C/svg%3E">
     <title>{% block title %}Складской учёт ООО «ЛЕКО»{% endblock %}</title>
     <script>
         // Права текущего сотрудника. Страницы прячут по ним кнопки,
@@ -83,6 +88,17 @@
                 guard++;
             }
             return all;
+        }
+
+        // Дата в привычном виде: 02.08.2026, а не 2026-08-02.
+        // База отдаёт даты в машинном виде, и он же попадал в карточки
+        // документов — читать его человеку неудобно, а спутать день с
+        // месяцем легко.
+        function ruDate(value) {
+            if (!value) return '';
+            const parts = String(value).slice(0, 10).split('-');
+            if (parts.length !== 3) return value;
+            return `${parts[2]}.${parts[1]}.${parts[0]}`;
         }
 
         // Иконка: короткая запись вместо длинного тега svg/use
@@ -424,6 +440,24 @@
         .toolbar select { min-width: 150px; }
         .toolbar .search-wrap { flex: 1; min-width: 200px; }
         .toolbar .search-wrap input { width: 100%; }
+
+        /* Отбор по датам в панели инструментов: подпись «с» и «по»
+           рядом с полем, а не над ним, — в строку они читаются как
+           одно целое и занимают меньше места. */
+        .date-filter {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 13px; color: var(--ink-3); white-space: nowrap;
+        }
+        .date-filter input[type="date"] {
+            font-family: var(--mono); font-size: 13px;
+            padding: 8px 9px; width: 138px;
+        }
+        @media (max-width: 720px) {
+            /* На телефоне две даты встают рядом на всю ширину:
+               по отдельности они узкие и мажут мимо пальца. */
+            .date-filter { flex: 1; min-width: 140px; }
+            .date-filter input[type="date"] { flex: 1; min-width: 0; }
+        }
 
         .search-wrap { position: relative; display: block; }
         .search-wrap .ic {

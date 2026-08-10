@@ -15,7 +15,6 @@
 числу записей. Копия, которую нельзя восстановить, хуже её отсутствия:
 на неё рассчитывают.
 """
-import os
 import shutil
 import sqlite3
 from datetime import datetime, timedelta

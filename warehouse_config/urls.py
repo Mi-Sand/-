@@ -16,6 +16,7 @@ from inventory.views import InventoryViewSet
 from reports import views as report_views
 from warehouse import views as wh_views
 from warehouse import pages
+from warehouse import print_views
 from warehouse import shop
 from warehouse.order_views import OrderViewSet
 from accounts.views import (UserViewSet, chat_messages, chat_contacts,
@@ -86,6 +87,14 @@ page_urlpatterns = [
     path('employees/', pages.employees_page, name='employees-page'),
     path('orders/', pages.orders_page, name='orders-page'),
     path('audit/', audit_page, name='audit-page'),
+    # Печатные формы: открываются в отдельной вкладке из списка
+    # документов и печатаются как есть.
+    path('print/inbound/<int:pk>/', print_views.print_inbound,
+         name='print-inbound'),
+    path('print/outbound/<int:pk>/', print_views.print_outbound,
+         name='print-outbound'),
+    path('print/order/<int:pk>/', print_views.print_order,
+         name='print-order'),
 ]
 
 urlpatterns = [

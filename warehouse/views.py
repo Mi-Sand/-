@@ -7,7 +7,7 @@
 аутентификации. Для списков документов применён select_related — устранение
 проблемы N+1 запросов (фрагмент 17).
 """
-from django.db.models import DecimalField, F, Sum, Value
+from django.db.models import DecimalField, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
@@ -18,6 +18,7 @@ from rest_framework.response import Response
 
 from .models import (InboundDocument, Material, OutboundDocument, Product,
                      Stock, StockMovement, Supplier, Warehouse)
+from .params import contains_any_case, read_date
 from .serializers import (InboundDocumentSerializer, MaterialSerializer,
                           OutboundDocumentSerializer, ProductSerializer,
                           StockMovementSerializer, StockSerializer,
@@ -74,12 +75,69 @@ class CatalogDeleteGuardMixin:
         return super().destroy(request, *args, **kwargs)
 
 
-class MaterialViewSet(CatalogDeleteGuardMixin, viewsets.ModelViewSet):
+class TextSearchMixin:
+    """Поиск по строке — свой, вместо встроенного в DRF.
+
+    Встроенный SearchFilter приводит к одному регистру только латиницу:
+    в SQLite «кожа» не находило «Кожа хромовая», и человек делал вывод,
+    что записи нет. Здесь тот же параметр `?search=`, но с разбором
+    регистра, годным для русских названий (см. contains_any_case).
+
+    Поле называется `text_search_fields`, а не `search_fields`: под
+    вторым именем его подхватывает SearchFilter и молча применяет свой
+    отбор поверх нашего — с тем же изъяном, ради которого всё и
+    затевалось.
+    """
+
+    #: Поля, по которым идёт поиск. Задаёт наследник.
+    text_search_fields = ()
+
+    def get_queryset(self):
+        records = super().get_queryset()
+        search = (self.request.query_params.get('search') or '').strip()
+        if not (search and self.text_search_fields):
+            return records
+
+        condition = Q()
+        for field in self.text_search_fields:
+            condition |= contains_any_case(field, search)
+        # Поиск идёт и по строкам документа, а строк несколько: без
+        # distinct документ с двумя подходящими позициями показался бы
+        # дважды.
+        return records.filter(condition).distinct()
+
+
+class DocumentSearchMixin(TextSearchMixin):
+    """То же самое плюс отбор по датам документа.
+
+    Раньше искать можно было только по номеру, да и то в браузере:
+    страница забирала все документы и отсеивала лишние сама. Кладовщик
+    же помнит не номер, а поставщика, товар или хотя бы неделю, когда
+    это было. При тысяче документов забирать всё, чтобы показать три, —
+    расточительство, которое сначала незаметно, а потом внезапно.
+    """
+
+    def get_queryset(self):
+        documents = super().get_queryset()
+        params = self.request.query_params
+
+        since = read_date(params.get('since'))
+        if since:
+            documents = documents.filter(doc_date__gte=since)
+        until = read_date(params.get('until'))
+        if until:
+            documents = documents.filter(doc_date__lte=until)
+
+        return documents
+
+
+class MaterialViewSet(TextSearchMixin, CatalogDeleteGuardMixin,
+                      viewsets.ModelViewSet):
     queryset = Material.objects.all()
     serializer_class = MaterialSerializer
     permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'unit']
-    search_fields = ['name', 'description']
+    text_search_fields = ('name', 'description', 'article_number')
     ordering_fields = ['name', 'category', 'reorder_point']
     guard_field = 'material'
     guard_subject = 'материал'
@@ -101,12 +159,13 @@ class MaterialViewSet(CatalogDeleteGuardMixin, viewsets.ModelViewSet):
         return Response(data)
 
 
-class ProductViewSet(CatalogDeleteGuardMixin, viewsets.ModelViewSet):
+class ProductViewSet(TextSearchMixin, CatalogDeleteGuardMixin,
+                     viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'size', 'color', 'status']
-    search_fields = ['name', 'article_number', 'color']
+    text_search_fields = ('name', 'article_number', 'color')
     ordering_fields = ['name', 'article_number', 'selling_price']
     guard_field = 'product'
     guard_subject = 'продукцию'
@@ -126,14 +185,14 @@ class WarehouseViewSet(CatalogDeleteGuardMixin, viewsets.ModelViewSet):
                     'движений по нему.')
 
 
-class SupplierViewSet(viewsets.ModelViewSet):
+class SupplierViewSet(TextSearchMixin, viewsets.ModelViewSet):
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
     permission_classes = [CanManageCatalog]
-    search_fields = ['name', 'inn', 'contact_person']
+    text_search_fields = ('name', 'inn', 'contact_person')
 
 
-class InboundDocumentViewSet(viewsets.ModelViewSet):
+class InboundDocumentViewSet(DocumentSearchMixin, viewsets.ModelViewSet):
     # select_related — один запрос с JOIN вместо N+1 (фрагмент 17)
     queryset = (InboundDocument.objects
                 .select_related('supplier', 'warehouse', 'created_by')
@@ -142,6 +201,8 @@ class InboundDocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [CanEditDocuments]
     filterset_fields = ['warehouse', 'supplier', 'processed']
     ordering_fields = ['doc_date', 'doc_number']
+    text_search_fields = ('doc_number', 'supplier__name',
+                          'items__material__name', 'items__product__name')
 
     @action(detail=True, methods=['post'])
     def process(self, request, pk=None):
@@ -194,7 +255,7 @@ class InboundDocumentViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
 
-class OutboundDocumentViewSet(viewsets.ModelViewSet):
+class OutboundDocumentViewSet(DocumentSearchMixin, viewsets.ModelViewSet):
     queryset = (OutboundDocument.objects
                 .select_related('warehouse', 'created_by')
                 .prefetch_related('items'))
@@ -202,6 +263,10 @@ class OutboundDocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [CanEditDocuments]
     filterset_fields = ['warehouse', 'purpose', 'processed']
     ordering_fields = ['doc_date', 'doc_number']
+    # Поставщика у расхода нет, зато есть производственный заказ —
+    # по нему и ищут, когда разбираются, куда ушёл материал.
+    text_search_fields = ('doc_number', 'production_order',
+                          'items__material__name', 'items__product__name')
 
     @action(detail=True, methods=['post'])
     def process(self, request, pk=None):

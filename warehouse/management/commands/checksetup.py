@@ -274,7 +274,7 @@ class Command(BaseCommand):
         последней больше недели, значит что-то сломалось или её не
         настраивали вовсе.
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime
 
         root = Path(settings.BASE_DIR) / 'backups'
         folders = []

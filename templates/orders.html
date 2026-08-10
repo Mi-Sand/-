@@ -147,6 +147,7 @@
                 <div class="items">${items}</div>
                 <div class="total">Итого: ${Number(o.total).toLocaleString('ru-RU')} ₽</div>
                 <div class="actions">
+                    <button class="btn-sm" onclick="printOrder(${o.id})"><svg class="ic"><use href="#i-print"></use></svg> Лист сборки</button>
                     ${o.status === 'new' && can('orders') ? `<button class="btn-sm b-confirm" onclick="confirmOrder(${o.id})"><svg class="ic"><use href="#i-check"></use></svg> Подтвердить</button>` : ''}
                     ${(o.status === 'new' || o.status === 'confirmed')
                         && can('documents') ? `<button class="btn-sm b-ship" onclick="openShip(${o.id})"><svg class="ic"><use href="#i-box"></use></svg> Отгрузить</button>` : ''}
@@ -155,6 +156,12 @@
                 </div>
             </div>`;
         }).join('') + '</div>';
+    }
+
+    // Лист комплектовщика: что собрать и кому отправить. Открывается
+    // отдельной вкладкой, чтобы список заказов остался на месте.
+    function printOrder(id) {
+        window.open(`/print/order/${id}/`, '_blank');
     }
 
     async function confirmOrder(id) {

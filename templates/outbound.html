@@ -48,11 +48,14 @@
 <div id="message"></div>
 
 <div class="toolbar">
+    <span class="search-wrap"><svg class="ic"><use href="#i-search"></use></svg><input type="text" id="search" placeholder="Номер, заказ или товар" style="flex:1; min-width:200px;"></span>
     <select id="filterStatus">
         <option value="">Все документы</option>
         <option value="false">Не проведены</option>
         <option value="true">Проведены</option>
     </select>
+    <label class="date-filter">с <input type="date" id="since"></label>
+    <label class="date-filter">по <input type="date" id="until"></label>
     <button class="btn btn-ghost" onclick="loadDocuments()" style="margin-left: auto;"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>
     {% if user_perms.documents %}<button class="btn btn-primary" onclick="openCreateModal()">+ Новый расход</button>{% endif %}
 </div>
@@ -116,9 +119,19 @@
         try {
             document.getElementById('loading').style.display = 'block';
             document.getElementById('content').style.display = 'none';
+            // Отбор считает сервер — см. тот же приём на странице прихода.
+            const parts = [];
             const filterStatus = document.getElementById('filterStatus').value;
-            let url = '/outbound-documents/';
-            if (filterStatus !== '') url += `?processed=${filterStatus}`;
+            if (filterStatus !== '') parts.push(`processed=${filterStatus}`);
+            const add = (name, id) => {
+                const raw = document.getElementById(id).value.trim();
+                if (raw) parts.push(`${name}=${encodeURIComponent(raw)}`);
+            };
+            add('search', 'search');
+            add('since', 'since');
+            add('until', 'until');
+            const url = '/outbound-documents/'
+                + (parts.length ? `?${parts.join('&')}` : '');
             const docs = await apiCallAll(url);
             const html = docs.map(doc => `
                 <div class="doc-card">
@@ -129,7 +142,7 @@
                         </span>
                     </div>
                     <div class="doc-info">
-                        <svg class="ic"><use href="#i-calendar"></use></svg> ${doc.doc_date}<br>
+                        <svg class="ic"><use href="#i-calendar"></use></svg> ${ruDate(doc.doc_date)}<br>
                         <svg class="ic"><use href="#i-box"></use></svg> ${esc(doc.warehouse_name)}<br>
                         <svg class="ic"><use href="#i-target"></use></svg> ${esc(doc.purpose_display)}<br>
                         <svg class="ic"><use href="#i-ruble"></use></svg> Сумма: ${doc.total_sum} руб.
@@ -142,6 +155,7 @@
                             ? `<button class="btn-small btn-success" onclick="processDocument(${doc.id})"><svg class="ic"><use href="#i-check"></use></svg> Провести</button>`
                             : `<button class="btn-small" style="background:var(--mark); color:#fff;" onclick="unprocessDocument(${doc.id})"><svg class="ic"><use href="#i-undo"></use></svg> Отменить</button>`}
                         <button class="btn-small btn-info" onclick="viewDocument(${doc.id})"><svg class="ic"><use href="#i-eye"></use></svg> Просмотр</button>
+                        <button class="btn-small" onclick="printDocument(${doc.id})"><svg class="ic"><use href="#i-print"></use></svg> Печать</button>
                         ${!doc.processed ? `<button class="btn-small btn-danger" onclick="deleteDocument(${doc.id})"><svg class="ic"><use href="#i-trash"></use></svg> Удалить</button>` : ''}
                     </div>
                 </div>
@@ -188,13 +202,17 @@
         }
     }
 
+    function printDocument(id) {
+        window.open(`/print/outbound/${id}/`, '_blank');
+    }
+
     async function viewDocument(id) {
         try {
             const doc = await apiCall(`/outbound-documents/${id}/`);
             document.getElementById('viewTitle').textContent = `Расходный документ ${esc(doc.doc_number)}`;
             const itemsHtml = doc.items.map(item => `<div class="doc-item">${esc(item.item_name)}: ${item.quantity}</div>`).join('');
             document.getElementById('viewBody').innerHTML = `
-                <p><strong>Дата:</strong> ${doc.doc_date}</p>
+                <p><strong>Дата:</strong> ${ruDate(doc.doc_date)}</p>
                 <p><strong>Склад:</strong> ${esc(doc.warehouse_name)}</p>
                 <p><strong>Назначение:</strong> ${esc(doc.purpose_display)}</p>
                 <p><strong>Статус:</strong> ${doc.processed ? 'Проведён' : '<svg class="ic"><use href="#i-clock"></use></svg> Не проведён'}</p>
@@ -291,6 +309,13 @@
 
     document.getElementById('createForm').addEventListener('submit', saveOutboundDocument);
     document.getElementById('filterStatus').addEventListener('change', loadDocuments);
+    let searchTimer = null;
+    document.getElementById('search').addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(loadDocuments, 350);
+    });
+    document.getElementById('since').addEventListener('change', loadDocuments);
+    document.getElementById('until').addEventListener('change', loadDocuments);
     loadDocuments();
 </script>
 {% endblock %}

@@ -253,6 +253,9 @@ class ApiTest(TestCase):
     def test_broken_filters_do_not_break_the_page(self):
         """Мусор в отборе не должен ронять журнал."""
         for query in ('?user=abc', '?since=вчера', '?until=32-13-2020',
+                      # вид верный, а месяца такого нет: parse_date на
+                      # такой строке бросает исключение, а не молчит
+                      '?since=2020-13-45', '?until=2026-02-31',
                       '?action=выдумка', '?model=нет.Такой',
                       '?user=99999999999999999999'):
             response = self.client.get(f'/api/audit/{query}')

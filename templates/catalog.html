@@ -18,6 +18,16 @@
         font: inherit; font-size: 13.5px; color: var(--ink-2);
         border-bottom: 2px solid transparent; margin-bottom: -1px;
     }
+    /* На телефоне вкладки и кнопка в одну строку не помещаются:
+       кнопка вылезала за край, и страница ехала вбок целиком —
+       вместе с шапкой. Переносим её под вкладки во всю ширину. */
+    @media (max-width: 720px) {
+        .tabs { flex-wrap: wrap; }
+        .tabs #addBtn {
+            margin-left: 0; margin-bottom: 10px;
+            width: 100%; justify-content: center;
+        }
+    }
     .tab:hover { color: var(--ink); }
     .tab .ic { color: var(--ink-3); }
     .tab.active .ic { color: var(--mark); }

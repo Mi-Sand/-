@@ -12,15 +12,13 @@
 """
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
-from django.utils.dateparse import parse_date
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
+from warehouse.params import contains_any_case, read_date, read_id
+
 from .models import AuditEntry
 from .serializers import AuditEntrySerializer
-
-#: Наибольшее целое, какое принимает база
-MAX_ID = 2 ** 63 - 1
 
 
 class AuditEntryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -34,12 +32,9 @@ class AuditEntryViewSet(viewsets.ReadOnlyModelViewSet):
         entries = super().get_queryset()
         params = self.request.query_params
 
-        # Номер сверяется с границей целого в базе: SQLite не принимает
-        # число шире 8 байт и падает на самом запросе, а не отвечает
-        # пустым списком. Такое уже случалось в отчётах.
-        user = params.get('user')
-        if user and user.isdigit() and int(user) <= MAX_ID:
-            entries = entries.filter(user_id=int(user))
+        user = read_id(params.get('user'))
+        if user:
+            entries = entries.filter(user_id=user)
 
         action = params.get('action')
         if action in dict(AuditEntry.Action.choices):
@@ -49,19 +44,17 @@ class AuditEntryViewSet(viewsets.ReadOnlyModelViewSet):
         if model_label:
             entries = entries.filter(model_label=model_label)
 
-        # Даты приходят от календаря в браузере, но дойти сюда может что
-        # угодно. Негодную дату молча пропускаем: пустой отбор понятнее
-        # ошибки на всю страницу.
-        since = parse_date(params.get('since') or '')
+        since = read_date(params.get('since'))
         if since:
             entries = entries.filter(happened_at__date__gte=since)
-        until = parse_date(params.get('until') or '')
+        until = read_date(params.get('until'))
         if until:
             entries = entries.filter(happened_at__date__lte=until)
 
         search = (params.get('search') or '').strip()
         if search:
-            entries = entries.filter(object_label__icontains=search)
+            entries = entries.filter(
+                contains_any_case('object_label', search))
 
         return entries
 
