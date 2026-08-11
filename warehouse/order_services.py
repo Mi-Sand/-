@@ -14,8 +14,10 @@
 расход (process_outbound_document), включая проверку достаточности остатка.
 """
 import re
+from datetime import timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import DecimalField, Sum, Value
 from django.db.models.functions import Coalesce
@@ -363,6 +365,77 @@ def validate_comment(comment):
     return value
 
 
+# --- Ограничение частоты заказов --------------------------------------------
+#
+# Витрина открыта без входа — так и задумано. Но товар при оформлении
+# уходит в резерв, и один человек за минуту мог оформить сотню заказов:
+# витрина показывала бы «нет в наличии», а настоящие покупатели уходили.
+# Порча данных здесь ни при чём, вред другой — помеха работе.
+#
+# Пределы намеренно щедрые: обычный покупатель за час оформляет один
+# заказ, редко два. Значения меняются в settings.py, если жизнь покажет
+# другое.
+DEFAULT_ORDER_LIMITS = {
+    # Сколько заказов принимаем с одного адреса за час
+    'per_ip_per_hour': 5,
+    # И сколько — с одного номера телефона. Отдельно от адреса: адрес
+    # у мобильного интернета меняется сам собой, а телефон покупатель
+    # указывает свой.
+    'per_phone_per_hour': 3,
+}
+
+
+class TooManyOrdersError(Exception):
+    """Заказов с одного адреса или телефона больше, чем разумно."""
+
+
+def order_limits():
+    limits = dict(DEFAULT_ORDER_LIMITS)
+    limits.update(getattr(settings, 'SHOP_ORDER_LIMITS', {}) or {})
+    return limits
+
+
+def check_order_rate(source_ip=None, phone=''):
+    """Не слишком ли часто с этого адреса и телефона оформляют заказы.
+
+    Проверка идёт по самим заказам, а не по счётчику в памяти: счётчик
+    обнуляется при перезапуске системы, а заказы остаются. Заодно это
+    работает одинаково при любом числе рабочих процессов.
+
+    Отменённые заказы не в счёт: человек мог ошибиться, отменить и
+    оформить заново — наказывать за это нечем.
+    """
+    limits = order_limits()
+    hour_ago = timezone.now() - timedelta(hours=1)
+    recent = Order.objects.filter(created_at__gte=hour_ago).exclude(
+        status='cancelled')
+
+    per_ip = limits.get('per_ip_per_hour') or 0
+    if source_ip and per_ip > 0:
+        if recent.filter(created_ip=source_ip).count() >= per_ip:
+            raise TooManyOrdersError(
+                f'С этого компьютера за последний час оформлено '
+                f'{per_ip} заказов — это предел. Попробуйте позже или '
+                f'позвоните нам, и мы оформим заказ вместе.')
+
+    per_phone = limits.get('per_phone_per_hour') or 0
+    if phone and per_phone > 0:
+        # Телефон в заказе хранится приведённым к общему виду. Сверять
+        # надо так же, иначе предел обходится лишним пробелом или
+        # скобкой в номере.
+        try:
+            phone = validate_phone(phone)
+        except ValueError:
+            # Номер и так негодный — заказ отклонит проверка данных,
+            # считать частоту не по чему.
+            return
+        if recent.filter(customer_phone=phone).count() >= per_phone:
+            raise TooManyOrdersError(
+                f'На этот номер за последний час оформлено {per_phone} '
+                f'заказов — это предел. Если нужно больше, позвоните '
+                f'нам: так быстрее.')
+
+
 def _generate_order_number():
     """Следующий номер заказа вида ЗАК-00001."""
     last = Order.objects.order_by('-id').first()
@@ -500,7 +573,7 @@ def _read_cart(items):
 
 
 def create_order(customer_name, customer_phone, items,
-                 customer_email='', address='', comment=''):
+                 customer_email='', address='', comment='', source_ip=None):
     """Создать заказ покупателя с проверкой доступности товара.
 
     items — список [{'product': id, 'quantity': N}, ...].
@@ -564,7 +637,8 @@ def create_order(customer_name, customer_phone, items,
         customer_phone=customer_phone,
         customer_email=customer_email,
         address=(address or '').strip(),
-        comment=comment)
+        comment=comment,
+        created_ip=source_ip)
 
     for product, qty in prepared:
         OrderItem.objects.create(

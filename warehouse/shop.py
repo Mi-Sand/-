@@ -10,6 +10,7 @@
 Наличие показывается с учётом резерва: товар, обещанный другим заказам,
 недоступен к заказу, хотя физически ещё лежит на складе.
 """
+from django.conf import settings
 from django.db.models import DecimalField, Sum, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import render
@@ -19,7 +20,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from warehouse.models import Product
-from warehouse.order_services import create_order, get_reserved_quantities
+from warehouse.order_services import (TooManyOrdersError, check_order_rate,
+                                      create_order, get_reserved_quantities)
 from warehouse.services import InsufficientStockError
 
 
@@ -50,6 +52,24 @@ def shop_delivery_page(request):
 def shop_contacts_page(request):
     """Контакты, схема проезда и реквизиты."""
     return render(request, 'shop_contacts.html', {'page': 'contacts'})
+
+
+def client_address(request):
+    """Адрес, с которого пришёл запрос.
+
+    Когда перед системой стоит nginx, все запросы приходят с его
+    адреса, а настоящий передаётся в заголовке X-Forwarded-For. Берём
+    первый адрес из списка — остальные дописывают промежуточные узлы.
+
+    Заголовок подделывается кем угодно, поэтому доверяем ему только
+    при явном разрешении в настройках: без веб-сервера впереди
+    подделанный заголовок обошёл бы ограничение частоты в одну строку.
+    """
+    if getattr(settings, 'TRUST_FORWARDED_FOR', False):
+        forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
+        if forwarded:
+            return forwarded.split(',')[0].strip()[:45] or None
+    return request.META.get('REMOTE_ADDR') or None
 
 
 @api_view(['GET'])
@@ -162,19 +182,32 @@ def shop_create_order(request):
     из браузера покупателя не считаются доверенными.
     """
     data = request.data
+    source_ip = client_address(request)
     try:
+        # Предел частоты проверяем до создания заказа: смысл в том,
+        # чтобы товар не ушёл в резерв, а не в том, чтобы отменить это
+        # потом.
+        check_order_rate(source_ip=source_ip,
+                         phone=str(data.get('customer_phone', '')).strip())
         order = create_order(
             customer_name=data.get('customer_name', ''),
             customer_phone=data.get('customer_phone', ''),
             customer_email=data.get('customer_email', ''),
             address=data.get('address', ''),
             comment=data.get('comment', ''),
-            items=data.get('items', []))
+            items=data.get('items', []),
+            source_ip=source_ip)
         return Response({
             'status': 'ok',
             'order_number': order.number,
             'total': float(order.total),
         }, status=http_status.HTTP_201_CREATED)
+    except TooManyOrdersError as e:
+        # 429 — «слишком много обращений». Отдельный код, а не общий
+        # отказ: по журналу сервера сразу видно, что заказ не приняли
+        # из-за частоты, а не из-за ошибки в данных.
+        return Response({'error': str(e)},
+                        status=http_status.HTTP_429_TOO_MANY_REQUESTS)
     except InsufficientStockError as e:
         return Response({'error': str(e)},
                         status=http_status.HTTP_400_BAD_REQUEST)
