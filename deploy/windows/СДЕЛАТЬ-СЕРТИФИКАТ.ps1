@@ -74,16 +74,37 @@ Write-Host ''
 Write-Host "  Имя в сертификате: $($names -join ', ')"
 Write-Host "  Срок: $Years г."
 
+# Адрес и имя записываются в сертификат по-разному, и перепутать их
+# нельзя: браузер, открывая https://192.168.1.63, ищет запись именно
+# вида «адрес». Раньше адрес записывался как имя, и по адресу браузер
+# ругался всегда — установка сертификата на рабочее место не помогала.
+$isAddress = $Address -and
+             ($Address -as [System.Net.IPAddress]) -ne $null
+
+$common = @{
+    CertStoreLocation = 'Cert:\LocalMachine\My'
+    FriendlyName      = "Складской учёт ООО ЛЕКО ($Name)"
+    NotAfter          = (Get-Date).AddYears($Years)
+    KeyExportPolicy   = 'Exportable'
+    KeyLength         = 2048
+    KeyAlgorithm      = 'RSA'
+    HashAlgorithm     = 'SHA256'
+}
+
 try {
-    $certificate = New-SelfSignedCertificate `
-        -DnsName $names `
-        -CertStoreLocation 'Cert:\LocalMachine\My' `
-        -FriendlyName "Складской учёт ООО ЛЕКО ($Name)" `
-        -NotAfter (Get-Date).AddYears($Years) `
-        -KeyExportPolicy Exportable `
-        -KeyLength 2048 `
-        -KeyAlgorithm RSA `
-        -HashAlgorithm SHA256
+    if ($isAddress) {
+        # Обе записи задаются одним расширением: -DnsName вместе с ним
+        # использовать нельзя, оно перезаписывает то же самое поле.
+        $extension = "2.5.29.17={text}DNS=$Name&IPAddress=$Address"
+        $certificate = New-SelfSignedCertificate @common `
+            -Subject "CN=$Name" -TextExtension $extension
+    } elseif ($Address) {
+        # Второе имя, а не адрес: так тоже бывает — sklad и
+        # sklad.leko.local.
+        $certificate = New-SelfSignedCertificate @common -DnsName $names
+    } else {
+        $certificate = New-SelfSignedCertificate @common -DnsName $Name
+    }
 } catch {
     Fail @"
 не удалось выпустить сертификат: $($_.Exception.Message)
