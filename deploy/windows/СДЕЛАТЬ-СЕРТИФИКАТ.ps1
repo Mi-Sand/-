@@ -106,32 +106,76 @@ Export-PfxCertificate -Cert $certificate -FilePath $pfxPath `
 $publicPath = Join-Path $Target 'sklad-для-сотрудников.crt'
 Export-Certificate -Cert $certificate -FilePath $publicPath -Type CERT | Out-Null
 
-# nginx понимает PEM, а Windows выдаёт PFX. Перекладываем openssl —
-# он идёт вместе с nginx для Windows.
+$crtPath = Join-Path $Target 'sklad.crt'
+$keyPath = Join-Path $Target 'sklad.key'
+
+# Сам сертификат кладём в PEM своими руками, без посторонних программ:
+# это просто его содержимое в base64 между двумя строками-рамками.
+# Раньше и его доставали openssl, и когда тот спотыкался, оставался
+# пустой файл, а nginx на него отвечал загадочным «no start line».
+$pem = New-Object System.Text.StringBuilder
+[void]$pem.AppendLine('-----BEGIN CERTIFICATE-----')
+$base64 = [Convert]::ToBase64String($certificate.Export('Cert'))
+for ($i = 0; $i -lt $base64.Length; $i += 64) {
+    [void]$pem.AppendLine($base64.Substring($i, [Math]::Min(64, $base64.Length - $i)))
+}
+[void]$pem.AppendLine('-----END CERTIFICATE-----')
+# Без BOM и с переносами строк как в Unix: openssl и nginx читают
+# именно такой PEM, а Set-Content в PowerShell 5.1 добавил бы BOM.
+[IO.File]::WriteAllText($crtPath, ($pem.ToString() -replace "`r`n", "`n"),
+    (New-Object System.Text.UTF8Encoding($false)))
+Write-Host ''
+Write-Host '  Сертификат записан.' -ForegroundColor Green
+
+# А вот ключ вынуть без openssl нельзя: PowerShell 5.1 не умеет
+# выгружать закрытый ключ в PEM. openssl идёт вместе с nginx для Windows.
 $openssl = Get-Command openssl -ErrorAction SilentlyContinue
 if (-not $openssl) {
     Write-Host ''
     Write-Host '  ВНИМАНИЕ: не найдена программа openssl.' -ForegroundColor Yellow
-    Write-Host '  Сертификат выпущен и лежит здесь:' -ForegroundColor Yellow
-    Write-Host "      $pfxPath"
-    Write-Host '  Чтобы получить из него файлы для nginx, выполните на любом'
-    Write-Host '  компьютере с openssl:'
-    Write-Host "      openssl pkcs12 -in sklad-временный.pfx -clcerts -nokeys -out sklad.crt"
-    Write-Host "      openssl pkcs12 -in sklad-временный.pfx -nocerts -nodes -out sklad.key"
+    Write-Host '  Она нужна только чтобы вынуть ключ. Обычно лежит рядом с nginx;'
+    Write-Host '  добавьте её папку в PATH или выполните вручную:'
+    Write-Host ''
+    Write-Host "      openssl pkcs12 -legacy -in `"$pfxPath`" -nocerts -nodes -out `"$keyPath`""
     Write-Host "  Пароль от файла: $password"
+    Write-Host ''
+    Write-Host '  Временный файл оставлен: он понадобится для этой команды.'
+    Write-Host "      $pfxPath"
     Write-Host ''
     exit 0
 }
 
-$crtPath = Join-Path $Target 'sklad.crt'
-$keyPath = Join-Path $Target 'sklad.key'
-& openssl pkcs12 -in $pfxPath -clcerts -nokeys -out $crtPath -passin "pass:$password" 2>$null
-& openssl pkcs12 -in $pfxPath -nocerts -nodes -out $keyPath -passin "pass:$password" 2>$null
-Remove-Item $pfxPath -Force
-
-if (-not (Test-Path $crtPath) -or -not (Test-Path $keyPath)) {
-    Fail 'не удалось получить файлы для nginx. Проверьте, что openssl работает.'
+# Windows закрывает PFX старым шифрованием (RC2), а openssl версии 3
+# считает его устаревшим и без ключа -legacy просто отказывается читать.
+# Отказ этот тихий: файл он к тому времени уже создал, и остаётся пустым.
+# Поэтому сначала пробуем как есть, потом с -legacy, и в обоих случаях
+# смотрим не на наличие файла, а на его содержимое.
+$keyMade = $false
+foreach ($legacy in @(@(), @('-legacy'))) {
+    $output = & openssl pkcs12 @legacy -in $pfxPath -nocerts -nodes `
+        -out $keyPath -passin "pass:$password" 2>&1
+    if ((Test-Path $keyPath) -and
+        ((Get-Content $keyPath -Raw -ErrorAction SilentlyContinue) -match '-----BEGIN')) {
+        $keyMade = $true
+        break
+    }
+    $lastError = ($output | Out-String).Trim()
 }
+
+if (-not $keyMade) {
+    if (Test-Path $keyPath) { Remove-Item $keyPath -Force }
+    Fail @"
+не удалось вынуть закрытый ключ. Ответ openssl:
+
+$lastError
+
+Сертификат при этом выпущен, он в файле:
+    $pfxPath
+Пароль от него: $password
+"@
+}
+
+Remove-Item $pfxPath -Force
 
 Write-Host ''
 Write-Host '  Готово. Файлы:' -ForegroundColor Green
