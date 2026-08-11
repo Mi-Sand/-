@@ -83,7 +83,6 @@ $isAddress = $Address -and
 
 $common = @{
     CertStoreLocation = 'Cert:\LocalMachine\My'
-    FriendlyName      = "Складской учёт ООО ЛЕКО ($Name)"
     NotAfter          = (Get-Date).AddYears($Years)
     KeyExportPolicy   = 'Exportable'
     KeyLength         = 2048
@@ -91,20 +90,48 @@ $common = @{
     HashAlgorithm     = 'SHA256'
 }
 
+# Сертификатов делается два, и это не усложнение ради порядка.
+#
+# Раньше выпускался один — сам себе и сервер, и поручитель. Ставить
+# такой в «доверенные корневые центры» бесполезно: браузер требует,
+# чтобы поручителем был именно центр — сертификат с пометкой «может
+# выдавать другие». У обычного серверного её нет, и Chrome отвечал
+# «подключение не защищено», сколько его ни устанавливай.
+#
+# Поэтому: свой центр предприятия (его и ставят на рабочие места, один
+# раз на десять лет) и выданный им сертификат сервера (его меняют
+# каждые два года, обходить рабочие места при этом не нужно).
 try {
-    if ($isAddress) {
-        # Обе записи задаются одним расширением: -DnsName вместе с ним
-        # использовать нельзя, оно перезаписывает то же самое поле.
-        $extension = "2.5.29.17={text}DNS=$Name&IPAddress=$Address"
-        $certificate = New-SelfSignedCertificate @common `
-            -Subject "CN=$Name" -TextExtension $extension
-    } elseif ($Address) {
-        # Второе имя, а не адрес: так тоже бывает — sklad и
-        # sklad.leko.local.
-        $certificate = New-SelfSignedCertificate @common -DnsName $names
-    } else {
-        $certificate = New-SelfSignedCertificate @common -DnsName $Name
-    }
+    $authority = New-SelfSignedCertificate @common `
+        -Subject 'CN=Складской учёт ООО ЛЕКО (свой центр)' `
+        -FriendlyName 'Складской учёт ООО ЛЕКО — свой центр' `
+        -NotAfter (Get-Date).AddYears(10) `
+        -KeyUsage CertSign, CRLSign, DigitalSignature `
+        -TextExtension '2.5.29.19={text}CA=true&pathlength=0'
+} catch {
+    Fail @"
+не удалось создать свой центр сертификации: $($_.Exception.Message)
+
+Скорее всего не хватает прав. Запустите PowerShell от имени
+администратора и повторите.
+"@
+}
+
+# Адрес записывается отдельной строкой расширения, имя — своей.
+$subjectNames = "DNS=$Name"
+if ($isAddress)    { $subjectNames += "&IPAddress=$Address" }
+elseif ($Address)  { $subjectNames += "&DNS=$Address" }
+
+try {
+    $certificate = New-SelfSignedCertificate @common `
+        -Subject "CN=$Name" `
+        -FriendlyName "Складской учёт ООО ЛЕКО ($Name)" `
+        -Signer $authority `
+        -TextExtension @("2.5.29.17={text}$subjectNames",
+                         # Назначение «проверка подлинности сервера»:
+                         # без него соединение отвергается уже не за
+                         # недоверие, а за неподходящее назначение.
+                         '2.5.29.37={text}1.3.6.1.5.5.7.3.1')
 } catch {
     Fail @"
 не удалось выпустить сертификат: $($_.Exception.Message)
@@ -188,14 +215,33 @@ function ConvertTo-Pkcs1([System.Security.Cryptography.RSAParameters]$Key) {
     return Get-DerSequence $body
 }
 
-# Сертификат для сотрудников: только открытая часть, ключа в нём нет
+# Файл для рабочих мест — это сертификат центра, а не сервера. Ключа в
+# нём нет, рассылать его безопасно.
 $publicPath = Join-Path $Target 'sklad-для-сотрудников.crt'
-Export-Certificate -Cert $certificate -FilePath $publicPath -Type CERT | Out-Null
+Export-Certificate -Cert $authority -FilePath $publicPath -Type CERT | Out-Null
+
+# И на самом сервере центру тоже нужно доверять — иначе браузер на нём
+# ругается так же, как на любом другом рабочем месте.
+try {
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store(
+        'Root', 'LocalMachine')
+    $store.Open('ReadWrite')
+    $store.Add($authority)
+    $store.Close()
+} catch {
+    Write-Host ''
+    Write-Host '  Замечание: не удалось внести свой центр в доверенные на этом' `
+        -ForegroundColor Yellow
+    Write-Host '  компьютере. Поставьте sklad-для-сотрудников.crt вручную.'
+}
 
 $crtPath = Join-Path $Target 'sklad.crt'
 $keyPath = Join-Path $Target 'sklad.key'
 
-Save-Text $crtPath (ConvertTo-Pem 'CERTIFICATE' $certificate.Export('Cert'))
+# nginx отдаёт браузеру оба: свой сертификат и сертификат выдавшего его
+# центра. Без второго браузер видит подпись, но не знает, чья она.
+Save-Text $crtPath ((ConvertTo-Pem 'CERTIFICATE' $certificate.Export('Cert')) +
+                    (ConvertTo-Pem 'CERTIFICATE' $authority.Export('Cert')))
 
 try {
     $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($certificate)
@@ -245,11 +291,14 @@ Write-Host ''
 Write-Host '  Готово. Файлы:' -ForegroundColor Green
 Write-Host "    $crtPath        — сертификат для nginx"
 Write-Host "    $keyPath        — ключ для nginx (никому не показывать)"
-Write-Host "    $publicPath  — поставить на рабочие места"
+Write-Host "    $publicPath  — свой центр, поставить на рабочие места"
+Write-Host ''
+Write-Host '  На рабочие места идёт именно файл «для сотрудников»: это'
+Write-Host '  сертификат вашего центра, ключа в нём нет. Менять его раз в'
+Write-Host '  десять лет; сертификат сервера обновляется без обхода мест.'
 Write-Host ''
 Write-Host '  Дальше:'
-Write-Host '    1. Пропишите пути к sklad.crt и sklad.key в настройке nginx'
-Write-Host '       (образец — deploy\nginx\warehouse-https.conf).'
+Write-Host '    1. Сделайте настройку nginx: .\НАСТРОИТЬ-NGINX.ps1'
 Write-Host '    2. Поставьте sklad-для-сотрудников.crt на рабочие места:'
 Write-Host '       двойное нажатие -> Установить сертификат -> Локальный компьютер'
 Write-Host '       -> Поместить в: Доверенные корневые центры сертификации.'
