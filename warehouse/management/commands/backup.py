@@ -15,13 +15,16 @@
 числу записей. Копия, которую нельзя восстановить, хуже её отсутствия:
 на неё рассчитывают.
 """
+import os
 import shutil
 import sqlite3
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db import connection
 
 #: Сколько дней хранить копии, если не сказано иное
 DEFAULT_KEEP_DAYS = 30
@@ -70,14 +73,19 @@ class Command(BaseCommand):
         started = datetime.now()
 
         database = settings.DATABASES['default']
-        if 'sqlite' not in database['ENGINE']:
+        engine = database['ENGINE']
+        if 'sqlite' in engine:
+            self.postgres = False
+            source = Path(database['NAME'])
+            if not source.exists():
+                raise CommandError(f'Файл базы не найден: {source}')
+        elif 'postgresql' in engine:
+            self.postgres = True
+            source = database['NAME']
+        else:
             raise CommandError(
-                'Эта команда снимает копию только с SQLite. Для PostgreSQL '
-                'пользуйтесь pg_dump — он умеет то же самое для своей базы.')
-
-        source = Path(database['NAME'])
-        if not source.exists():
-            raise CommandError(f'Файл базы не найден: {source}')
+                f'Копию с базы {engine} эта команда снимать не умеет. '
+                f'Поддерживаются SQLite и PostgreSQL.')
 
         root = Path(options['to']) if options['to'] \
             else Path(settings.BASE_DIR) / 'backups'
@@ -91,12 +99,16 @@ class Command(BaseCommand):
         except OSError as e:
             raise CommandError(f'Не удалось создать папку {target}: {e}')
 
-        copy = self.copy_database(source, target)
-        self.verify_database(source, copy)
+        if self.postgres:
+            copy = self.dump_postgres(database, target)
+            self.verify_postgres_dump(copy)
+        else:
+            copy = self.copy_database(source, target)
+            self.verify_database(source, copy)
         if not options['no_media']:
             self.copy_media(target)
         self.copy_settings(target)
-        self.write_note(target, started, source)
+        self.write_note(target, started, source, copy)
 
         removed = self.remove_old(root, options['keep'])
 
@@ -194,6 +206,109 @@ class Command(BaseCommand):
             counts[name] = row[0]
         return counts
 
+    # --- PostgreSQL ------------------------------------------------------
+    def dump_postgres(self, database, target):
+        """Снять копию базы PostgreSQL средством pg_dump.
+
+        Формат — обычный SQL, а не сжатый: его можно открыть и прочитать
+        глазами, восстановить одной командой psql и — что важнее —
+        проверить, не открывая базу. Выигрыш в размере сжатого формата
+        для склада на несколько тысяч документов не стоит потери этих
+        свойств.
+        """
+        copy = target / 'db.sql'
+        command = [
+            'pg_dump',
+            '--host', str(database.get('HOST') or 'localhost'),
+            '--port', str(database.get('PORT') or 5432),
+            '--username', str(database.get('USER') or ''),
+            '--dbname', str(database['NAME']),
+            # Права и владельца не переносим: на новом сервере
+            # пользователь называется иначе, и восстановление спотыкалось
+            # бы на несуществующей роли.
+            '--no-owner', '--no-privileges',
+            '--file', str(copy),
+        ]
+        environment = dict(os.environ)
+        if database.get('PASSWORD'):
+            # Пароль передаётся через окружение, а не в строке команды:
+            # список запущенных программ виден другим пользователям
+            # системы целиком, вместе с паролем.
+            environment['PGPASSWORD'] = str(database['PASSWORD'])
+
+        try:
+            result = subprocess.run(command, env=environment,
+                                    capture_output=True, text=True)
+        except FileNotFoundError:
+            raise CommandError(
+                'Не найдена программа pg_dump — без неё копию с PostgreSQL '
+                'снять нечем.\n'
+                '    Она входит в поставку PostgreSQL. Если сервер стоит на '
+                'другом компьютере,\n'
+                '    поставьте на этот компьютер клиентские программы '
+                'PostgreSQL той же версии\n'
+                '    и убедитесь, что путь к ним есть в переменной PATH.')
+
+        if result.returncode != 0:
+            raise CommandError(
+                'pg_dump завершился с ошибкой:\n    '
+                + (result.stderr.strip() or 'без объяснений'))
+
+        self.ok(f'База данных — {self.human_size(copy.stat().st_size)}')
+        return copy
+
+    def verify_postgres_dump(self, copy):
+        """Сверить число записей в копии с базой.
+
+        Тот же смысл, что и для SQLite: копия, потерявшая последние
+        документы, остаётся правильным файлом и открывается без единой
+        жалобы. Проверить её, не восстанавливая, всё же можно — данные в
+        обычном дампе лежат блоками COPY, и строки в них поддаются
+        счёту.
+        """
+        dump_counts = self.dump_counts(copy)
+        if not dump_counts:
+            raise CommandError(
+                'В копии нет ни одной таблицы с данными — похоже, '
+                'pg_dump отработал вхолостую.')
+
+        with connection.cursor() as cursor:
+            differences = []
+            for table, in_dump in sorted(dump_counts.items()):
+                cursor.execute(f'SELECT COUNT(*) FROM "{table}"')
+                in_base = cursor.fetchone()[0]
+                if in_base != in_dump:
+                    differences.append(
+                        f'{table}: в базе {in_base}, в копии {in_dump}')
+
+        if differences:
+            raise CommandError(
+                'Копия отличается от базы — не берите её за основу:\n    '
+                + '\n    '.join(differences))
+
+        total = sum(dump_counts.values())
+        self.ok(f'Копия проверена: {len(dump_counts)} таблиц, '
+                f'{total} записей — сходится с базой')
+
+    @staticmethod
+    def dump_counts(copy):
+        """Сколько строк в каждом блоке COPY внутри дампа."""
+        counts = {}
+        table = None
+        with copy.open(encoding='utf-8') as dump:
+            for line in dump:
+                if table is None:
+                    if line.startswith('COPY '):
+                        # COPY public.materials (id, name, ...) FROM stdin;
+                        name = line.split()[1]
+                        table = name.split('.')[-1].strip('"')
+                        counts[table] = 0
+                elif line.startswith('\\.'):
+                    table = None
+                else:
+                    counts[table] += 1
+        return counts
+
     def copy_media(self, target):
         """Скопировать фотографии товаров."""
         media = Path(settings.MEDIA_ROOT)
@@ -214,31 +329,58 @@ class Command(BaseCommand):
         else:
             self.note('Файла .env нет — настройки берутся из окружения')
 
-    def write_note(self, target, started, source):
+    def write_note(self, target, started, source, copy):
         """Записка внутри копии: что это и как этим пользоваться.
 
-        Через полгода никто не вспомнит, что лежит в папке с датой.
+        Через полгода никто не вспомнит, что лежит в папке с датой, а
+        порядок восстановления у SQLite и PostgreSQL разный — искать его
+        в документации в тот момент будет некогда.
         """
+        if self.postgres:
+            what = (f'  {copy.name}        — вся база выгрузкой pg_dump\n')
+            how = (
+                'Как восстановить:\n'
+                '  1. Остановите систему (закройте окно с сервером).\n'
+                '  2. Создайте пустую базу вместо испорченной:\n'
+                '       dropdb -U postgres <имя базы>\n'
+                '       createdb -U postgres -O <пользователь> <имя базы>\n'
+                '  3. Залейте выгрузку:\n'
+                f'       psql -U <пользователь> -d <имя базы> -f {copy.name}\n'
+                '  4. Так же верните media и .env, если они нужны.\n'
+                '  5. Запустите систему и выполните проверку:\n'
+                '     python manage.py checksetup\n'
+                '\n'
+                'Копия снята средством pg_dump и проверена при создании:\n'
+                'число записей в каждой таблице совпадало с базой.\n')
+        else:
+            what = f'  {copy.name}  — база данных целиком\n'
+            how = (
+                'Как восстановить:\n'
+                '  1. Остановите систему (закройте окно с сервером).\n'
+                '  2. Удалите рядом с базой файлы db.sqlite3-wal и\n'
+                '     db.sqlite3-shm, если они есть. Это журнал прежней\n'
+                '     базы: оставленный, он допишется поверх копии, и\n'
+                '     в базе окажется смесь старого с новым.\n'
+                '  3. Скопируйте файл базы отсюда в папку программы\n'
+                '     поверх существующего.\n'
+                '  4. Так же верните media и .env, если они нужны.\n'
+                '  5. Запустите систему и выполните проверку:\n'
+                '     python manage.py checksetup\n'
+                '\n'
+                'Копия снята средством SQLite и проверена при создании:\n'
+                'число записей в каждой таблице совпадало с базой.\n')
+
         (target / 'ЧТО-ЭТО.txt').write_text(
             'Резервная копия системы складского учёта ООО «ЛЕКО»\n'
             f'Снята: {started:%d.%m.%Y в %H:%M}\n'
             f'Источник: {source}\n'
             '\n'
             'Что внутри:\n'
-            f'  {source.name}  — база данных целиком\n'
+            + what +
             '  media\\        — фотографии товаров\n'
             '  .env          — настройки этой установки\n'
             '\n'
-            'Как восстановить:\n'
-            '  1. Остановите систему (закройте окно с сервером).\n'
-            '  2. Скопируйте файл базы отсюда в папку программы\n'
-            '     поверх существующего.\n'
-            '  3. Так же верните media и .env, если они нужны.\n'
-            '  4. Запустите систему и выполните проверку:\n'
-            '     python manage.py checksetup\n'
-            '\n'
-            'Копия снята средством SQLite и проверена при создании:\n'
-            'число записей в каждой таблице совпадало с базой.\n',
+            + how,
             encoding='utf-8')
 
     def remove_old(self, root, keep_days):

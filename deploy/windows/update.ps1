@@ -80,6 +80,13 @@ function Stop-WithError([string]$Text, [switch]$Restore) {
     if ($Restore -and (Test-Path $DatabaseBackup)) {
         Write-Host ''
         Write-Host 'Возвращаю базу из копии...' -ForegroundColor Yellow
+        # Журнал прежней базы (файлы -wal и -shm) нужно убрать до
+        # подмены файла: оставленный, он допишется поверх копии, и в
+        # базе окажется смесь старого с новым.
+        foreach ($tail in @('-wal', '-shm')) {
+            $sidecar = "$Database$tail"
+            if (Test-Path $sidecar) { Remove-Item $sidecar -Force }
+        }
         Copy-Item $DatabaseBackup $Database -Force
         Write-Host 'База восстановлена на состояние до обновления.' `
             -ForegroundColor Green

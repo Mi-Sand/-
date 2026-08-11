@@ -162,6 +162,39 @@ class Command(BaseCommand):
                           f'Копию снимайте командой backup, а не копированием '
                           f'файла: часть свежих записей лежит в служебном '
                           f'журнале рядом с базой и в копию не попадёт.')
+            self._check_journal_mode()
+        elif engine == 'postgresql':
+            with connection.cursor() as cursor:
+                cursor.execute('SHOW server_version')
+                self.note(f'PostgreSQL {cursor.fetchone()[0]}')
+
+    def _check_journal_mode(self):
+        """Включён ли режим WAL — от него зависит работа вдвоём и втроём.
+
+        Без него отчёт держит базу, и проведение документа ждёт его
+        окончания. На проверке разница была троекратной, так что
+        молчать о выключенном режиме нельзя.
+        """
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('PRAGMA journal_mode')
+                mode = (cursor.fetchone()[0] or '').lower()
+        except Exception:
+            return
+
+        if mode == 'wal':
+            self.ok('Режим журнала WAL — отчёты не мешают проведению')
+        elif mode == 'memory':
+            # Так выглядит база тестов; о ней говорить нечего.
+            pass
+        else:
+            self.warn(
+                f'База работает в режиме журнала «{mode}», а не WAL',
+                'В этом режиме построение отчёта задерживает проведение '
+                'документов. Режим включается сам при следующем запуске, '
+                'если файл базы лежит на этом же компьютере. Если он на '
+                'сетевой папке — WAL там не работает, и это повод '
+                'переходить на PostgreSQL.')
 
     def _check_migrations(self):
         try:
