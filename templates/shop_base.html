@@ -47,7 +47,11 @@
         a { color: var(--slate-700); }
         a:hover { color: var(--mark-dark); }
 
-        .container { max-width: 1180px; margin: 0 auto; padding: 0 22px; width: 100%; }
+        /* Поля по бокам держат текст на отдалении от края окна: строка,
+           начинающаяся вплотную к рамке, читается хуже, а на широком
+           экране выглядит случайной. Ширина полосы содержимого чуть
+           уже прежней — ради тех же полей. */
+        .container { max-width: 1120px; margin: 0 auto; padding: 0 34px; width: 100%; }
 
         /* --- Шапка ----------------------------------------------------- */
         /* Прилипает шапка целиком, вместе с меню разделов: раньше липкой
@@ -55,9 +59,12 @@
            страницы перейти в другой раздел было нечем. */
         .site-head { position: sticky; top: 0; z-index: 900; }
         header { background: var(--slate-900); color: #fff; }
+        /* padding-block, а не сокращённая запись `padding: 16px 0`:
+           сокращённая обнуляла боковые поля, заданные в .container, и
+           название прижималось к самому краю окна. */
         .head-row {
             display: flex; align-items: center; justify-content: space-between;
-            gap: 20px; padding: 16px 0;
+            gap: 20px; padding-block: 16px;
         }
         .brand {
             display: flex; align-items: center; gap: 13px; min-width: 0;
@@ -133,7 +140,7 @@
 
         /* --- Содержимое страницы ---------------------------------------- */
         main { flex: 1; }
-        .page { padding: 28px 0 48px; }
+        .page { padding-block: 28px 48px; }
         .page-head { margin-bottom: 22px; }
         .page-head .eyebrow {
             font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
@@ -263,12 +270,12 @@
             .foot-row { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 620px) {
-            .container { padding: 0 16px; }
+            .container { padding: 0 20px; }
             /* Шапка прилипшая, поэтому на телефоне она отъедает экран
                навсегда. Оставляем в ней только название и меню: род
                деятельности и село есть в подвале и на страницах, а
                место под товар дороже. */
-            .head-row { padding: 11px 0; gap: 12px; }
+            .head-row { padding-block: 11px; gap: 12px; }
             header .eyebrow {
                 font-family: var(--sans); font-size: 15px; font-weight: 620;
                 letter-spacing: -.01em; text-transform: none; color: #fff;
@@ -298,7 +305,7 @@
             .foot-item { margin-bottom: 10px; }
             .cart-btn { min-height: 42px; }
             .brand { padding: 5px 0; }
-            .page { padding: 20px 0 36px; }
+            .page { padding-block: 20px 36px; }
             .page-head h2 { font-size: 22px; }
             .panel { padding: 17px; }
             /* Подписи мельче 11 пикселей на телефоне уже не читаются. */

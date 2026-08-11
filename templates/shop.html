@@ -15,21 +15,6 @@
             font-family: var(--mono); font-variant-numeric: tabular-nums;
         }
 
-        /* --- Полоса о производстве ----------------------------------- */
-        /* Держит верх страницы, когда товаров мало, и отвечает на вопрос
-           покупателя «кто продаёт» до того, как он его задаст. */
-        .intro { background: var(--slate-800); color: #fff; }
-        .intro-row {
-            display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr;
-            gap: 26px; padding: 22px 0; align-items: start;
-        }
-        .intro h2 { font-size: 17px; font-weight: 620; letter-spacing: -.02em; }
-        .intro h2 + p { color: #94A9B8; font-size: 13px; margin-top: 5px; }
-        .fact { display: flex; gap: 10px; align-items: flex-start; }
-        .fact .ic { color: var(--mark); margin-top: 1px; }
-        .fact b { display: block; font-size: 13.5px; font-weight: 600; }
-        .fact span { display: block; color: #94A9B8; font-size: 12.5px; margin-top: 2px; }
-
         /* --- Панель поиска ------------------------------------------- */
         .toolbar {
             display: flex; gap: 10px; margin: 24px 0 14px;
@@ -410,14 +395,6 @@
         }
 
         @media (max-width: 620px) {
-            /* На телефоне полоса о производстве сжимается до сути: три
-               строки без пояснений. Иначе покупатель прокручивает пол-экрана
-               прежде, чем увидит первый товар. */
-            .intro-row { grid-template-columns: 1fr; gap: 9px; padding: 16px 0; }
-            .intro h2 { font-size: 16px; }
-            .intro h2 + p { display: none; }
-            .fact span { display: none; }
-            .fact b { font-weight: 550; }
             .grid, .grid.few {
                 grid-template-columns: 1fr; gap: 14px; justify-content: stretch;
             }
@@ -462,27 +439,6 @@
 {% endblock %}
 
 {% block content %}
-    <div class="intro">
-        <div class="container intro-row">
-            <div>
-                <h2>Делаем сами, продаём напрямую</h2>
-                <p>Мячи, оборудование для единоборств, спортивные комплексы и тренажёры.</p>
-            </div>
-            <div class="fact">
-                <svg class="ic"><use href="#i-factory"></use></svg>
-                <div><b>Свой цех</b><span>Без посредников и наценок</span></div>
-            </div>
-            <div class="fact">
-                <svg class="ic"><use href="#i-box"></use></svg>
-                <div><b>Наличие со склада</b><span>Обновляется при каждом заказе</span></div>
-            </div>
-            <div class="fact">
-                <svg class="ic"><use href="#i-truck"></use></svg>
-                <div><b>Доставка по России</b><span>Или самовывоз из {{ company.city_from }}</span></div>
-            </div>
-        </div>
-    </div>
-
         <div class="container">
             <div class="toolbar">
                 <div class="search-wrap">
