@@ -59,6 +59,7 @@ class Command(BaseCommand):
         self._check_email()
         self._check_backups()
         self._check_requisites()
+        self._check_https()
 
         return self._report()
 
@@ -193,6 +194,48 @@ class Command(BaseCommand):
 
         self.ok(f'Реквизиты организации: {requisites.short_name}, '
                 f'ИНН {requisites.inn}')
+
+    def _check_https(self):
+        """Согласованы ли настройки шифрования.
+
+        Здесь две беды, и обе тихие. Включить USE_HTTPS без работающего
+        HTTPS — значит закрыть себе вход: браузер уйдёт на адрес,
+        которого нет, а куки с пометкой «только по защищённому
+        соединению» просто не дойдут. Забыть про адреса в
+        CSRF_TRUSTED_ORIGINS — получить «подделка запроса» при входе,
+        причём не сразу, а на форме.
+        """
+        if not getattr(settings, 'USE_HTTPS', False):
+            if not settings.DEBUG:
+                self.note(
+                    'Работа по HTTP без шифрования. Внутри предприятия это '
+                    'приемлемо; если систему открывают наружу — см. HTTPS.md.')
+            return
+
+        self.ok('Включён режим HTTPS: перенаправление, защищённые куки, HSTS')
+
+        origins = getattr(settings, 'CSRF_TRUSTED_ORIGINS', [])
+        if not origins:
+            self.fail(
+                'Включён HTTPS, но не заданы доверенные адреса',
+                'Вход будет отвечать «подделка запроса». Впишите в .env '
+                'адреса, по которым сотрудники открывают систему, вместе '
+                'с портом:\n'
+                '      CSRF_TRUSTED_ORIGINS=https://sklad.leko.local,'
+                'https://192.168.1.50\n'
+                '    Адрес должен совпадать в точности — https://имя и '
+                'https://адрес считаются разными.')
+        else:
+            bad = [origin for origin in origins
+                   if not origin.startswith('https://')]
+            if bad:
+                self.warn(
+                    f'Среди доверенных адресов есть без https: '
+                    f'{", ".join(bad)}',
+                    'При включённом HTTPS браузер обращается только по '
+                    'https, и такой адрес просто не сработает.')
+            else:
+                self.ok(f'Доверенные адреса: {", ".join(origins)}')
 
     def _check_journal_mode(self):
         """Включён ли режим WAL — от него зависит работа вдвоём и втроём.
