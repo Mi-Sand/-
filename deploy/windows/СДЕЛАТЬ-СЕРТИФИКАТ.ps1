@@ -93,14 +93,79 @@ try {
 "@
 }
 
-# Пароль нужен только чтобы вынуть ключ из хранилища Windows: файл с
-# ним тут же превращается в пару crt/key и удаляется.
-$password = [System.Guid]::NewGuid().ToString()
-$securePassword = ConvertTo-SecureString -String $password -Force -AsPlainText
-$pfxPath = Join-Path $Target 'sklad-временный.pfx'
+# --- перевод в PEM ----------------------------------------------------------
+#
+# nginx читает PEM: содержимое в base64 между строками-рамками. Windows
+# хранит и то и другое по-своему, и раньше перекладывать звали openssl.
+# Это оказалось ошибкой: openssl вместе с nginx для Windows не идёт, на
+# складском компьютере его попросту нет, и выпуск сертификата
+# останавливался на полпути.
+#
+# Теперь всё делается средствами самого Windows. Посторонних программ не
+# нужно, и связи с интернетом тоже.
 
-Export-PfxCertificate -Cert $certificate -FilePath $pfxPath `
-    -Password $securePassword | Out-Null
+function ConvertTo-Pem([string]$Label, [byte[]]$Bytes) {
+    $text = New-Object System.Text.StringBuilder
+    [void]$text.Append("-----BEGIN $Label-----`n")
+    $base64 = [Convert]::ToBase64String($Bytes)
+    for ($i = 0; $i -lt $base64.Length; $i += 64) {
+        [void]$text.Append(
+            $base64.Substring($i, [Math]::Min(64, $base64.Length - $i)) + "`n")
+    }
+    [void]$text.Append("-----END $Label-----`n")
+    return $text.ToString()
+}
+
+function Save-Text([string]$Path, [string]$Text) {
+    # Без BOM: с ним nginx не узнаёт строку-рамку и говорит «no start
+    # line». Set-Content в PowerShell 5.1 BOM добавляет, поэтому пишем
+    # напрямую.
+    [IO.File]::WriteAllText($Path, $Text,
+        (New-Object System.Text.UTF8Encoding($false)))
+}
+
+# --- сборка DER для закрытого ключа -----------------------------------------
+#
+# Ключ Windows отдаёт числами, а PEM хранит их в виде записи ASN.1 DER.
+# Запись простая: каждое число — метка 0x02, длина, само число; всё
+# вместе завёрнуто в последовательность с меткой 0x30. Порядок чисел
+# задан стандартом PKCS#1 и менять его нельзя.
+
+function Get-DerLength([int]$Length) {
+    if ($Length -lt 0x80) { return [byte[]]@($Length) }
+    $bytes = [System.Collections.Generic.List[byte]]::new()
+    $rest = $Length
+    while ($rest -gt 0) {
+        $bytes.Insert(0, [byte]($rest -band 0xFF))
+        $rest = $rest -shr 8
+    }
+    # Старший байт говорит, сколько байтов занимает сама длина
+    return [byte[]](@([byte](0x80 -bor $bytes.Count)) + $bytes.ToArray())
+}
+
+function Get-DerInteger([byte[]]$Value) {
+    # Ведущие нули не нужны, но если старший бит единица, ноль спереди
+    # обязателен: иначе число прочтут как отрицательное.
+    $start = 0
+    while ($start -lt ($Value.Length - 1) -and $Value[$start] -eq 0) { $start++ }
+    $body = $Value[$start..($Value.Length - 1)]
+    if ($body[0] -ge 0x80) { $body = [byte[]](@([byte]0) + $body) }
+    return [byte[]](@([byte]0x02) + (Get-DerLength $body.Length) + $body)
+}
+
+function Get-DerSequence([byte[]]$Content) {
+    return [byte[]](@([byte]0x30) + (Get-DerLength $Content.Length) + $Content)
+}
+
+function ConvertTo-Pkcs1([System.Security.Cryptography.RSAParameters]$Key) {
+    $body = [byte[]]@()
+    $body += Get-DerInteger ([byte[]]@(0))       # версия
+    foreach ($part in @($Key.Modulus, $Key.Exponent, $Key.D, $Key.P, $Key.Q,
+                        $Key.DP, $Key.DQ, $Key.InverseQ)) {
+        $body += Get-DerInteger $part
+    }
+    return Get-DerSequence $body
+}
 
 # Сертификат для сотрудников: только открытая часть, ключа в нём нет
 $publicPath = Join-Path $Target 'sklad-для-сотрудников.crt'
@@ -109,73 +174,51 @@ Export-Certificate -Cert $certificate -FilePath $publicPath -Type CERT | Out-Nul
 $crtPath = Join-Path $Target 'sklad.crt'
 $keyPath = Join-Path $Target 'sklad.key'
 
-# Сам сертификат кладём в PEM своими руками, без посторонних программ:
-# это просто его содержимое в base64 между двумя строками-рамками.
-# Раньше и его доставали openssl, и когда тот спотыкался, оставался
-# пустой файл, а nginx на него отвечал загадочным «no start line».
-$pem = New-Object System.Text.StringBuilder
-[void]$pem.AppendLine('-----BEGIN CERTIFICATE-----')
-$base64 = [Convert]::ToBase64String($certificate.Export('Cert'))
-for ($i = 0; $i -lt $base64.Length; $i += 64) {
-    [void]$pem.AppendLine($base64.Substring($i, [Math]::Min(64, $base64.Length - $i)))
-}
-[void]$pem.AppendLine('-----END CERTIFICATE-----')
-# Без BOM и с переносами строк как в Unix: openssl и nginx читают
-# именно такой PEM, а Set-Content в PowerShell 5.1 добавил бы BOM.
-[IO.File]::WriteAllText($crtPath, ($pem.ToString() -replace "`r`n", "`n"),
-    (New-Object System.Text.UTF8Encoding($false)))
-Write-Host ''
-Write-Host '  Сертификат записан.' -ForegroundColor Green
+Save-Text $crtPath (ConvertTo-Pem 'CERTIFICATE' $certificate.Export('Cert'))
 
-# А вот ключ вынуть без openssl нельзя: PowerShell 5.1 не умеет
-# выгружать закрытый ключ в PEM. openssl идёт вместе с nginx для Windows.
-$openssl = Get-Command openssl -ErrorAction SilentlyContinue
-if (-not $openssl) {
-    Write-Host ''
-    Write-Host '  ВНИМАНИЕ: не найдена программа openssl.' -ForegroundColor Yellow
-    Write-Host '  Она нужна только чтобы вынуть ключ. Обычно лежит рядом с nginx;'
-    Write-Host '  добавьте её папку в PATH или выполните вручную:'
-    Write-Host ''
-    Write-Host "      openssl pkcs12 -legacy -in `"$pfxPath`" -nocerts -nodes -out `"$keyPath`""
-    Write-Host "  Пароль от файла: $password"
-    Write-Host ''
-    Write-Host '  Временный файл оставлен: он понадобится для этой команды.'
-    Write-Host "      $pfxPath"
-    Write-Host ''
-    exit 0
-}
-
-# Windows закрывает PFX старым шифрованием (RC2), а openssl версии 3
-# считает его устаревшим и без ключа -legacy просто отказывается читать.
-# Отказ этот тихий: файл он к тому времени уже создал, и остаётся пустым.
-# Поэтому сначала пробуем как есть, потом с -legacy, и в обоих случаях
-# смотрим не на наличие файла, а на его содержимое.
-$keyMade = $false
-foreach ($legacy in @(@(), @('-legacy'))) {
-    $output = & openssl pkcs12 @legacy -in $pfxPath -nocerts -nodes `
-        -out $keyPath -passin "pass:$password" 2>&1
-    if ((Test-Path $keyPath) -and
-        ((Get-Content $keyPath -Raw -ErrorAction SilentlyContinue) -match '-----BEGIN')) {
-        $keyMade = $true
-        break
-    }
-    $lastError = ($output | Out-String).Trim()
-}
-
-if (-not $keyMade) {
-    if (Test-Path $keyPath) { Remove-Item $keyPath -Force }
+try {
+    $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($certificate)
+    if (-not $rsa) { throw 'закрытый ключ недоступен' }
+    $parameters = $rsa.ExportParameters($true)
+    Save-Text $keyPath (ConvertTo-Pem 'RSA PRIVATE KEY' (ConvertTo-Pkcs1 $parameters))
+} catch {
     Fail @"
-не удалось вынуть закрытый ключ. Ответ openssl:
+не удалось выгрузить закрытый ключ: $($_.Exception.Message)
 
-$lastError
-
-Сертификат при этом выпущен, он в файле:
-    $pfxPath
-Пароль от него: $password
+Сертификат выпущен и лежит в хранилище Windows, но файлов для nginx
+из него не получилось. Запустите PowerShell от имени администратора и
+повторите: без прав администратора ключ не отдаётся.
 "@
 }
 
-Remove-Item $pfxPath -Force
+# Проверяем то, что получилось, а не то, что задумывалось: пустой или
+# неполный файл nginx встретит невнятным «no start line», и разбираться
+# придётся уже там.
+foreach ($path in @($crtPath, $keyPath)) {
+    $head = Get-Content $path -TotalCount 1 -ErrorAction SilentlyContinue
+    if (-not $head -or $head -notlike '-----BEGIN*') {
+        Fail "файл $path получился неполным. Повторите выпуск сертификата."
+    }
+}
+
+# Ключ читается только тем, кто его выпустил. Иначе он лежит рядом с
+# настройкой nginx с правами по умолчанию — то есть доступен всем.
+try {
+    $rights = Get-Acl $keyPath
+    $rights.SetAccessRuleProtection($true, $false)
+    $rights.Access | ForEach-Object { [void]$rights.RemoveAccessRule($_) }
+    foreach ($who in @('BUILTIN\Administrators', 'NT AUTHORITY\SYSTEM')) {
+        $rights.AddAccessRule((New-Object `
+            System.Security.AccessControl.FileSystemAccessRule(
+                $who, 'FullControl', 'Allow')))
+    }
+    Set-Acl $keyPath $rights
+} catch {
+    Write-Host ''
+    Write-Host '  Замечание: не удалось ограничить доступ к файлу ключа.' `
+        -ForegroundColor Yellow
+    Write-Host "  Ограничьте его вручную: $keyPath"
+}
 
 Write-Host ''
 Write-Host '  Готово. Файлы:' -ForegroundColor Green
