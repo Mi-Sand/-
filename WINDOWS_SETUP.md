@@ -484,7 +484,7 @@ cd D:\warehouse_project\deploy\windows
 .\СДЕЛАТЬ-СЕРТИФИКАТ.ps1 -Name sklad.leko.local -Address 192.168.1.50
 ```
 
-Дальше — настройка nginx по образцу `deploy\nginx\warehouse-https.conf`
+Дальше — настройка nginx: её делает `deploy\windows\НАСТРОИТЬ-NGINX.ps1`
 и две строки в `.env`. Порядок целиком, вместе с разбором частых ошибок,
 — в **HTTPS.md**.
 

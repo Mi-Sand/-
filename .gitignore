@@ -62,3 +62,13 @@ backups/
 .coverage
 htmlcov/
 .pytest_cache/
+
+# --- Настройка nginx под конкретную установку ---------------------------------
+# Образец warehouse-https.conf лежит в репозитории, а рабочая настройка
+# с путями и именем этого предприятия — нет. Её делает
+# НАСТРОИТЬ-NGINX.ps1, и держать её под git нельзя: правка в рабочей
+# копии останавливала бы обновление.
+deploy/nginx/warehouse-https.local.conf
+deploy/nginx/*.crt
+deploy/nginx/*.key
+deploy/nginx/*.pfx

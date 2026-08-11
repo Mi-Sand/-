@@ -175,40 +175,42 @@ cd D:\warehouse_project\deploy\windows
 
 ## Шаг 3. Настроить nginx
 
-**3.1.** Возьмите за основу готовый образец:
+**3.1.** Сделайте настройку под вашу установку:
 
+```powershell
+cd D:\warehouse_project\deploy\windows
+.\НАСТРОИТЬ-NGINX.ps1 -Name sklad.leko.local -Address 192.168.1.50
 ```
-D:\warehouse_project\deploy\nginx\warehouse-https.conf
-```
 
-Заменить в нём нужно четыре места:
+Скрипт берёт образец `deploy\nginx\warehouse-https.conf`, подставляет в
+него ваши пути, имя и адрес и кладёт рядом готовый файл
+`warehouse-https.local.conf`. Дальше указывают именно его.
 
-| Что | На что |
-|---|---|
-| `sklad.leko.local` (две строки, `server_name`) | имя вашей системы |
-| `C:/warehouse_project/deploy/nginx/sklad.crt` | путь к вашему сертификату |
-| `C:/warehouse_project/deploy/nginx/sklad.key` | путь к вашему ключу |
-| `C:/warehouse_project/staticfiles/` и `/media/` | пути к вашим папкам |
+Отдельный файл нужен не для порядка. Образец лежит под git, и правка
+прямо в нём останавливала бы обновление системы: git не станет затирать
+изменённый файл. Готовая настройка под git не числится — обновления её
+не трогают, а она их не держит.
 
-Пути пишутся через **прямую косую черту** (`C:/`, а не `C:\`) — так
-устроен nginx, обратная черта в его настройке означает другое.
+В образце пути написаны для примера (`C:/warehouse_project/...`), и
+подставлять их вручную не нужно: у вас программа на другом диске, и
+nginx честно ответит, что такого файла нет.
 
 **3.2.** Проверьте настройку до запуска:
 
 ```powershell
-cd C:\nginx
-.\nginx.exe -t -c D:\warehouse_project\deploy\nginx\warehouse-https.conf
+cd D:\nginx-1.30.4
+.\nginx.exe -t -c D:\warehouse_project\deploy\nginx\warehouse-https.local.conf
 ```
 
-Строка `cd C:\nginx` здесь обязательна. Запись `.\nginx.exe` означает
-«в этой папке», и из любой другой Windows ответит, что такое имя не
-распознано как имя программы. Подставьте свою папку, если распаковали
-nginx в другое место.
+Строка `cd` здесь обязательна. Запись `.\nginx.exe` означает «в этой
+папке», и из любой другой Windows ответит, что такое имя не распознано
+как имя программы. Подставьте свою папку, если распаковали nginx в
+другое место.
 
 **3.3.** Запустите:
 
 ```powershell
-.\nginx.exe -c D:\warehouse_project\deploy\nginx\warehouse-https.conf
+.\nginx.exe -c D:\warehouse_project\deploy\nginx\warehouse-https.local.conf
 ```
 
 Окно закроется сразу — так и должно быть, nginx уходит в фон. Проверить,
@@ -343,7 +345,7 @@ Windows → Параметры безопасности → Политики о�
 
 ```powershell
 $action = New-ScheduledTaskAction -Execute 'C:\nginx\nginx.exe' `
-    -Argument '-c D:\warehouse_project\deploy\nginx\warehouse-https.conf' `
+    -Argument '-c D:\warehouse_project\deploy\nginx\warehouse-https.local.conf' `
     -WorkingDirectory 'C:\nginx'
 $trigger = New-ScheduledTaskTrigger -AtStartup
 Register-ScheduledTask -TaskName 'nginx для складского учёта' `
