@@ -234,11 +234,45 @@ class BackupRetentionTest(TestCase):
 
 
 class BackupOnPostgresTest(TestCase):
-    """С PostgreSQL команда должна честно отказаться, а не сделать вид."""
+    """Копия с PostgreSQL снимается через pg_dump.
+
+    Здесь проверяется поведение, когда самой базы под рукой нет:
+    команда должна объяснить, чего не хватает, и не оставить после
+    себя пустую папку с датой. Работа с настоящей PostgreSQL
+    проверяется в test_postgres.py.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
 
     @override_settings(DATABASES={'default': {
-        'ENGINE': 'django.db.backends.postgresql', 'NAME': 'warehouse'}})
-    def test_refuses_and_explains(self):
+        'ENGINE': 'django.db.backends.postgresql', 'NAME': 'нет_такой_базы',
+        'USER': 'никто', 'PASSWORD': '', 'HOST': 'localhost',
+        'PORT': '65432'}})
+    def test_failure_is_explained(self):
         with self.assertRaises(CommandError) as caught:
-            call_command('backup', quiet=True)
+            run(to=str(self.root), quiet=True)
         self.assertIn('pg_dump', str(caught.exception))
+
+    @override_settings(DATABASES={'default': {
+        'ENGINE': 'django.db.backends.postgresql', 'NAME': 'нет_такой_базы',
+        'USER': 'никто', 'PASSWORD': '', 'HOST': 'localhost',
+        'PORT': '65432'}})
+    def test_failed_backup_leaves_no_folder(self):
+        """Пустая папка с датой хуже отсутствия копии.
+
+        И восстановление, и проверка сочтут её самой свежей копией —
+        и обе ошибутся.
+        """
+        with self.assertRaises(CommandError):
+            run(to=str(self.root), quiet=True)
+        self.assertEqual([p for p in self.root.iterdir() if p.is_dir()], [])
+
+    @override_settings(DATABASES={'default': {
+        'ENGINE': 'django.db.backends.mysql', 'NAME': 'warehouse'}})
+    def test_other_databases_are_refused(self):
+        with self.assertRaises(CommandError) as caught:
+            run(to=str(self.root), quiet=True)
+        self.assertIn('SQLite и PostgreSQL', str(caught.exception))

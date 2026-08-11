@@ -341,6 +341,12 @@ class Command(BaseCommand):
             for path in root.iterdir():
                 if not path.is_dir():
                     continue
+                # Папка без базы внутри — след неудавшегося копирования,
+                # а не копия. Считать её значило бы отчитаться о
+                # свежей копии, которой нет.
+                if not any(path.glob('*.sqlite3')) and \
+                        not any(path.glob('*.sql')):
+                    continue
                 try:
                     folders.append(
                         datetime.strptime(path.name[:19], '%Y-%m-%d_%H-%M-%S'))

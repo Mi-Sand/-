@@ -99,16 +99,24 @@ class Command(BaseCommand):
         except OSError as e:
             raise CommandError(f'Не удалось создать папку {target}: {e}')
 
-        if self.postgres:
-            copy = self.dump_postgres(database, target)
-            self.verify_postgres_dump(copy)
-        else:
-            copy = self.copy_database(source, target)
-            self.verify_database(source, copy)
-        if not options['no_media']:
-            self.copy_media(target)
-        self.copy_settings(target)
-        self.write_note(target, started, source, copy)
+        try:
+            if self.postgres:
+                copy = self.dump_postgres(database, target)
+                self.verify_postgres_dump(copy)
+            else:
+                copy = self.copy_database(source, target)
+                self.verify_database(source, copy)
+            if not options['no_media']:
+                self.copy_media(target)
+            self.copy_settings(target)
+            self.write_note(target, started, source, copy)
+        except Exception:
+            # Неудавшаяся копия не должна оставлять после себя папку с
+            # датой: и восстановление, и проверка сочтут её копией —
+            # пустой, но самой свежей. Хуже отсутствия копии только
+            # копия, которой нет, но все думают, что она есть.
+            shutil.rmtree(target, ignore_errors=True)
+            raise
 
         removed = self.remove_old(root, options['keep'])
 
