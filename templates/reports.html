@@ -57,12 +57,21 @@
            ширину, кнопки парой в ряд. В одну строку всё это не
            помещалось и наезжало друг на друга. */
         .report-controls {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+            display: grid; gap: 8px;
+            /* minmax(0, 1fr), а не просто 1fr: обычная доля не сжимается
+               уже своего содержимого, и кнопка «Выгрузить в Excel»
+               растягивала столбец шире экрана — страница ехала вбок. */
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
+        .report-controls .btn { white-space: normal; }
         .report-controls label,
         .report-controls input,
         .report-controls select {
             grid-column: 1 / -1;
+            /* Без min-width: 0 список раздвигается под самый длинный
+               свой пункт и на узком экране вылезает за край страницы:
+               содержимое ячейки сетки по умолчанию не сжимается. */
+            min-width: 0; width: 100%;
         }
         .report-controls label {
             font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
@@ -95,9 +104,10 @@
     <button class="tab" data-tab="inventory" onclick="switchTab('inventory')"><svg class="ic"><use href="#i-clipboard"></use></svg> Инвентаризации</button>
     <button class="tab" data-tab="expiry" onclick="switchTab('expiry')"><svg class="ic"><use href="#i-clock"></use></svg> Сроки годности</button>
     <button class="tab" data-tab="cost" onclick="switchTab('cost')"><svg class="ic"><use href="#i-ruble"></use></svg> Себестоимость</button>
+    <button class="tab" data-tab="reconciliation" onclick="switchTab('reconciliation')"><svg class="ic"><use href="#i-ruble"></use></svg> Акт сверки</button>
 </div>
 
-<!-- То же самое списком: шесть вкладок на телефоне занимали три строки
+<!-- То же самое списком: семь вкладок на телефоне занимали три строки
      и половину экрана. Разметка отдельная, а не спрятанные вкладки:
      родной список открывается привычным выбором и не требует точного
      попадания в мелкую надпись. -->
@@ -110,6 +120,7 @@
         <option value="inventory">Инвентаризации</option>
         <option value="expiry">Сроки годности</option>
         <option value="cost">Себестоимость</option>
+        <option value="reconciliation">Акт сверки</option>
     </select>
 </div>
 
@@ -185,13 +196,104 @@
                     <option value="365">год</option>
                 </select>
                 <button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Показать</button>`;
+        } else if (currentTab === 'reconciliation') {
+            // Период по умолчанию — текущий год: акт сверки чаще всего
+            // составляют именно за год или за квартал внутри него.
+            const year = new Date().getFullYear();
+            c.innerHTML = `
+                <label>Покупатель:</label>
+                <select id="counterparty"><option value="">Загрузка...</option></select>
+                <label>с</label>
+                <input type="date" id="dateFrom" value="${year}-01-01">
+                <label>по</label>
+                <input type="date" id="dateTo" value="${new Date().toISOString().slice(0, 10)}">
+                <button class="btn btn-excel" onclick="downloadReconciliation()"><svg class="ic"><use href="#i-inbound"></use></svg> Выгрузить акт</button>`;
+            loadCounterparties();
         } else {
             c.innerHTML = `<button class="btn btn-primary" onclick="loadReport()"><svg class="ic"><use href="#i-refresh"></use></svg> Обновить</button>`;
         }
     }
 
+    async function loadCounterparties() {
+        const select = document.getElementById('counterparty');
+        try {
+            const data = await apiCallAll('/counterparties/');
+            if (!data.length) {
+                select.innerHTML = '<option value="">Нет покупателей-организаций</option>';
+                return;
+            }
+            select.innerHTML = data.map(c =>
+                `<option value="${c.id}">${esc(c.short_name)} (ИНН ${esc(c.inn)})</option>`
+            ).join('');
+        } catch (error) {
+            select.innerHTML = '<option value="">Ошибка загрузки</option>';
+        }
+    }
+
+    async function downloadReconciliation() {
+        const id = document.getElementById('counterparty').value;
+        if (!id) {
+            showMessage('Выберите покупателя', 'error');
+            return;
+        }
+        const from = document.getElementById('dateFrom').value;
+        const to = document.getElementById('dateTo').value;
+        await downloadFile(
+            `/api/reconciliation/?counterparty=${id}&from=${from}&to=${to}`,
+            'Акт сверки.xlsx');
+    }
+
+    // Скачивание файла с разбором ответа: при отказе сервера — например,
+    // не заполнены реквизиты организации — браузер иначе сохранил бы текст
+    // ошибки под именем книги Excel, и сотрудник увидел бы «повреждённый
+    // файл» вместо объяснения, что не так.
+    async function downloadFile(url, fallbackName) {
+        try {
+            const response = await fetch(url, { credentials: 'same-origin' });
+            if (!response.ok) {
+                let message = `Не удалось получить документ (${response.status})`;
+                try {
+                    const data = await response.json();
+                    if (data && data.error) message = data.error;
+                } catch (e) { /* ответ не JSON — оставляем общий текст */ }
+                showMessage(message, 'error');
+                return;
+            }
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const match = disposition.match(/filename\*=UTF-8''([^;]+)/);
+            const filename = match ? decodeURIComponent(match[1]) : fallbackName;
+
+            const blob = await response.blob();
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+        } catch (error) {
+            showMessage('Не удалось получить документ: ' + error.message, 'error');
+        }
+    }
+
     async function loadReport() {
         const area = document.getElementById('reportArea');
+
+        // Акт сверки на экране не показывается: это документ на подпись,
+        // его сразу выгружают файлом. Вместо таблицы — пояснение, что
+        // попадает в акт, чтобы бухгалтер не гадал, почему сумм меньше.
+        if (currentTab === 'reconciliation') {
+            area.innerHTML = `
+                <div class="loading" style="text-align:left; padding:20px 0;">
+                    Выберите покупателя и период, затем нажмите «Выгрузить акт».<br><br>
+                    В акт попадают отгруженные заказы и внесённые оплаты.
+                    Заказы, ещё не отгруженные, не учитываются: обязательство
+                    по ним пока не возникло. Отменённые заказы не учитываются вовсе.<br><br>
+                    Оплаты вносятся в админке, раздел «Оплаты».
+                </div>`;
+            return;
+        }
+
         area.innerHTML = '<div class="loading">Загрузка отчёта...</div>';
         try {
             if (currentTab === 'stock') await loadStock(area);

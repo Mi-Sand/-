@@ -417,6 +417,13 @@ class Order(models.Model):
         'Статус', max_length=20, choices=STATUS_CHOICES, default='new',
         db_index=True)
     created_at = models.DateTimeField('Создан', auto_now_add=True)
+    # Реквизиты покупателя, если заказ оформила организация. С витрины
+    # заказы приходят от частных лиц и это поле пустое; счёт им выписать
+    # можно и так, а накладную или УПД организации — уже нет.
+    counterparty = models.ForeignKey(
+        'billing.Counterparty', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='orders',
+        verbose_name='Покупатель-организация')
     # Документ, которым заказ был отгружен (заполняется при отгрузке)
     outbound_document = models.ForeignKey(
         'OutboundDocument', on_delete=models.SET_NULL, null=True, blank=True,

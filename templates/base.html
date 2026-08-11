@@ -353,6 +353,14 @@
         }
         .whoami .out:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface-alt); }
 
+        /* На самых узких экранах (320 пикселей) имя сотрудника и кнопка
+           выхода вместе не помещаются в шапку и выталкивают страницу
+           вбок. Имя убираем — оно и так известно тому, кто вошёл,
+           а кнопка выхода нужнее. */
+        @media (max-width: 360px) {
+            .whoami .who { display: none; }
+        }
+
         .sheet { padding: 22px 26px 40px; flex: 1; }
 
         /* ---------- Иконки ---------- */

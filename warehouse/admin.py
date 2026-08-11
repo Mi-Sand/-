@@ -1,9 +1,9 @@
 """Регистрация моделей в административной панели Django."""
 from django.contrib import admin
 
-from .models import (InboundDocument, InboundItem, Material,
-                     OutboundDocument, OutboundItem, PriceHistory, Product,
-                     ProductionMaterial, ProductionRun,
+from .models import (InboundDocument, InboundItem, Material, Order,
+                     OrderItem, OutboundDocument, OutboundItem, PriceHistory,
+                     Product, ProductionMaterial, ProductionRun,
                      Stock, StockMovement, Supplier, Warehouse)
 
 
@@ -76,6 +76,28 @@ class StockMovementAdmin(admin.ModelAdmin):
                     'quantity', 'user')
     list_filter = ('movement_type', 'warehouse', 'created_at')
     readonly_fields = ('created_at',)
+
+
+class OrderItemInline(admin.TabularInline):
+    model = OrderItem
+    extra = 0
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    """Заказы покупателей.
+
+    Нужны в панели и сами по себе, и для подбора заказа при вводе
+    оплаты: без поиска по номеру пришлось бы выбирать из выпадающего
+    списка, где через год окажутся тысячи строк.
+    """
+
+    list_display = ('number', 'created_at', 'customer_name', 'status')
+    list_filter = ('status', 'created_at')
+    search_fields = ('number', 'customer_name', 'customer_phone',
+                     'customer_email')
+    date_hierarchy = 'created_at'
+    inlines = [OrderItemInline]
 
 
 @admin.register(PriceHistory)

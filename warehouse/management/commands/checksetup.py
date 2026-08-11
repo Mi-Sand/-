@@ -58,6 +58,7 @@ class Command(BaseCommand):
         self._check_reference_data()
         self._check_email()
         self._check_backups()
+        self._check_requisites()
 
         return self._report()
 
@@ -167,6 +168,31 @@ class Command(BaseCommand):
             with connection.cursor() as cursor:
                 cursor.execute('SHOW server_version')
                 self.note(f'PostgreSQL {cursor.fetchone()[0]}')
+
+    def _check_requisites(self):
+        """Заполнены ли реквизиты организации.
+
+        Без них счёт и накладную выставить нечем, и узнаётся это в
+        неудобный момент — когда покупатель ждёт документ. Проверка
+        мягкая: складской учёт работает и без реквизитов.
+        """
+        try:
+            from billing.models import CompanyRequisites
+        except Exception:                                # pragma: no cover
+            return
+
+        requisites = CompanyRequisites.get_active()
+        if requisites is None:
+            self.warn(
+                'Не заполнены реквизиты организации',
+                'Без них нельзя выставить счёт, накладную или УПД. '
+                'Откройте панель управления (/admin/), раздел «Реквизиты '
+                'организации», и внесите ИНН, банк и подписантов. На сам '
+                'складской учёт это не влияет.')
+            return
+
+        self.ok(f'Реквизиты организации: {requisites.short_name}, '
+                f'ИНН {requisites.inn}')
 
     def _check_journal_mode(self):
         """Включён ли режим WAL — от него зависит работа вдвоём и втроём.

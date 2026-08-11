@@ -3,7 +3,13 @@
 {% block page_title %}<svg class="ic"><use href="#i-bag"></use></svg> Заказы покупателей{% endblock %}
 
 {% block extra_css %}
-    .order-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 18px; }
+    /* min(380px, 100%) — иначе на телефоне колонка шириной 380 пикселей
+       не помещается в 390 вместе с полями, и страница едет вбок
+       целиком, вместе с шапкой. */
+    .order-list {
+        display: grid; gap: 18px;
+        grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr));
+    }
     .order-card { background: #fff; border: 1px solid var(--line-strong); border-radius: 8px; padding: 18px; }
     .order-card:hover { border-color: var(--slate-800); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
     .order-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
@@ -25,6 +31,18 @@
     .b-confirm { background: var(--info); color: #fff; }
     .b-ship { background: var(--ok); color: #fff; }
     .b-cancel { background: var(--stop); color: #fff; }
+    /* Кнопки документов — приглушённые: это не действия над заказом,
+       а выгрузка бумаг, и они не должны спорить за внимание с
+       «Подтвердить» и «Отгрузить». */
+    .b-doc {
+        background: transparent; color: var(--ink);
+        border: 1px solid var(--line-strong);
+    }
+    .b-doc:hover { background: var(--line); }
+    .docs-sep {
+        width: 1px; align-self: stretch; background: var(--line);
+        margin: 0 4px;
+    }
     .loading, .empty { text-align: center; padding: 50px 20px; color: var(--ink-3); }
     .alert { padding: 14px; border-radius: 5px; margin-bottom: 18px; border-left: 4px solid; }
     .alert-success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
@@ -153,6 +171,13 @@
                         && can('documents') ? `<button class="btn-sm b-ship" onclick="openShip(${o.id})"><svg class="ic"><use href="#i-box"></use></svg> Отгрузить</button>` : ''}
                     ${o.status !== 'shipped' && o.status !== 'cancelled'
                         && can('orders') ? `<button class="btn-sm b-cancel" onclick="cancelOrder(${o.id})"><svg class="ic"><use href="#i-x"></use></svg> Отменить</button>` : ''}
+                    ${o.status !== 'cancelled' ? '<div class="docs-sep"></div>' : ''}
+                    ${o.status !== 'cancelled'
+                        ? `<button class="btn-sm b-doc" onclick="downloadDoc(${o.id}, 'invoice')" title="Счёт на оплату для покупателя">Счёт</button>` : ''}
+                    ${o.status === 'shipped'
+                        ? `<button class="btn-sm b-doc" onclick="downloadDoc(${o.id}, 'torg12')" title="Товарная накладная ТОРГ-12">Накладная</button>` : ''}
+                    ${o.status === 'shipped'
+                        ? `<button class="btn-sm b-doc" onclick="downloadDoc(${o.id}, 'upd')" title="Универсальный передаточный документ">УПД</button>` : ''}
                 </div>
             </div>`;
         }).join('') + '</div>';
@@ -180,6 +205,48 @@
             showMessage('Заказ отменён, резерв снят', 'success');
             loadOrders();
         } catch (e) { showMessage('' + e.message, 'error'); }
+    }
+
+    // Выгрузка документа для бухгалтерии.
+    //
+    // Обычная ссылка тут не годится: когда сервер отвечает отказом —
+    // например, не заполнены реквизиты организации, — браузер сохранил бы
+    // текст ошибки файлом с расширением xlsx, и сотрудник увидел бы
+    // «повреждённую книгу» вместо объяснения. Поэтому ответ читаем сами и
+    // сохраняем файл, только если он действительно пришёл.
+    async function downloadDoc(id, kind) {
+        try {
+            const response = await fetch(`/api/orders/${id}/${kind}/`, {
+                credentials: 'same-origin'
+            });
+            if (!response.ok) {
+                let message = `Не удалось получить документ (${response.status})`;
+                try {
+                    const data = await response.json();
+                    if (data && data.error) message = data.error;
+                } catch (e) { /* ответ не в формате JSON — оставим общий текст */ }
+                showMessage(message, 'error');
+                return;
+            }
+
+            // Имя файла сервер присылает в заголовке в кодировке RFC 5987
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const match = disposition.match(/filename\*=UTF-8''([^;]+)/);
+            const filename = match ? decodeURIComponent(match[1]) : 'document.xlsx';
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            // Освобождаем память: без этого объект висит до перезагрузки
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            showMessage('Не удалось получить документ: ' + e.message, 'error');
+        }
     }
 
     async function openShip(id) {

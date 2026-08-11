@@ -12,6 +12,7 @@ from django.urls import include, path, re_path
 from rest_framework.routers import DefaultRouter
 
 from audit.views import AuditEntryViewSet, audit_page
+from billing import views as billing_views
 from inventory.views import InventoryViewSet
 from reports import views as report_views
 from warehouse import views as wh_views
@@ -36,6 +37,8 @@ router.register(r'users', UserViewSet)
 router.register(r'orders', OrderViewSet)
 router.register(r'inventories', InventoryViewSet)
 router.register(r'audit', AuditEntryViewSet)
+router.register(r'counterparties', billing_views.CounterpartyViewSet)
+router.register(r'payments', billing_views.PaymentViewSet)
 
 api_urlpatterns = [
     path('api/', include(router.urls)),
@@ -55,6 +58,15 @@ api_urlpatterns = [
          name='report-stock-export'),
     path('api/dashboard/', wh_views.dashboard_summary,
          name='dashboard-summary'),
+    # --- Документы для бухгалтерии ---
+    path('api/orders/<int:pk>/invoice/', billing_views.order_invoice,
+         name='order-invoice'),
+    path('api/orders/<int:pk>/torg12/', billing_views.order_torg12,
+         name='order-torg12'),
+    path('api/orders/<int:pk>/upd/', billing_views.order_upd,
+         name='order-upd'),
+    path('api/reconciliation/', billing_views.reconciliation_report,
+         name='reconciliation'),
     path('api/produce/', wh_views.produce_view, name='produce'),
     path('api/chat/messages/', chat_messages, name='chat-messages'),
     path('api/chat/contacts/', chat_contacts, name='chat-contacts'),
