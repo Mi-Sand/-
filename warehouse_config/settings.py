@@ -303,6 +303,16 @@ DEFAULT_FROM_EMAIL = os.environ.get(
 WAREHOUSE_MANAGER_EMAIL = os.environ.get(
     'WAREHOUSE_MANAGER_EMAIL', 'manager@leko.example')
 
+# Писать ли ответственному на каждое падение остатка ниже минимума.
+#
+# По умолчанию нет: остаток пересчитывается при каждом проведении
+# документа, и при десятке материалов набегает десяток писем в день.
+# Ящик с такой рассылкой перестают читать, и предупреждения перестают
+# работать вовсе. Низкие остатки перечислены в ежедневной сводке
+# (manage.py dailysummary) первым же разделом.
+NOTIFY_LOW_STOCK_INSTANTLY = os.environ.get(
+    'NOTIFY_LOW_STOCK_INSTANTLY', 'False').lower() in ('true', '1', 'yes')
+
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'

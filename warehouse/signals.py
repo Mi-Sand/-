@@ -15,7 +15,23 @@ from .models import Stock
 
 @receiver(post_save, sender=Stock)
 def check_reorder_point(sender, instance, **kwargs):
-    """Отправить уведомление, если остаток материала ниже минимума."""
+    """Отправить уведомление, если остаток материала ниже минимума.
+
+    По умолчанию письмо не уходит: остаток пересчитывается при каждом
+    проведении документа, и при десятке материалов набегает десяток
+    писем в день. Ящик с такой рассылкой перестают читать — и тогда
+    предупреждения формально есть, а фактически их никто не видит.
+    Это хуже их отсутствия, потому что на них рассчитывают.
+
+    Вместо этого раз в сутки приходит сводка (`manage.py dailysummary`),
+    и низкие остатки перечислены в ней первым же разделом.
+
+    Кому письмо на каждое событие всё же нужно — включается в .env
+    строкой NOTIFY_LOW_STOCK_INSTANTLY=True.
+    """
+    if not getattr(settings, 'NOTIFY_LOW_STOCK_INSTANTLY', False):
+        return
+
     material = instance.material
     if material and instance.quantity < material.reorder_point:
         send_mail(
