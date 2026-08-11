@@ -237,6 +237,32 @@ if ($NoPull) {
     Push-Location $ProjectRoot
     try {
         $before = (& git rev-parse --short HEAD 2>$null)
+
+        # Файлы программы, изменённые прямо в рабочей папке, останавливают
+        # обновление: git не станет затирать чужую правку. На складском
+        # компьютере такая правка почти всегда случайна — открыли файл,
+        # сохранили, поменялись переносы строк. Ждать, пока кто-то
+        # разберётся с git вручную, нельзя: обновление встанет намертво.
+        #
+        # Поэтому убираем такие изменения в отложенные (git stash). Они не
+        # пропадают: их видно через "git stash list" и можно вернуть через
+        # "git stash pop". Настройки (.env) и база под git не числятся,
+        # их это не касается.
+        $changed = @(& git status --porcelain --untracked-files=no 2>$null |
+            Where-Object { $_ })
+        if ($changed.Count -gt 0) {
+            Write-Warn "в папке программы изменены файлы ($($changed.Count) шт.) — откладываю их"
+            foreach ($line in $changed | Select-Object -First 10) {
+                Write-Note ("  " + $line.Trim())
+            }
+            & git stash push --message "перед обновлением $(Get-Date -Format 'yyyy-MM-dd HH:mm')" | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn 'отложить не удалось — обновление может не пройти'
+            } else {
+                Write-Note 'вернуть их можно командой: git stash pop'
+            }
+        }
+
         & git pull
         $pullCode = $LASTEXITCODE
         $after = (& git rev-parse --short HEAD 2>$null)
@@ -248,8 +274,8 @@ if ($NoPull) {
         Stop-WithError @'
 не удалось получить обновление (git pull завершился с ошибкой).
 
-Частые причины: нет связи с сервером, либо в папке есть изменённые
-вручную файлы, мешающие обновлению. Посмотрите вывод выше.
+Частые причины: нет связи с сервером, либо изменения в папке программы
+не удалось отложить. Посмотрите вывод выше.
 '@
     }
 
