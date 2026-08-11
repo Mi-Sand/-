@@ -345,11 +345,16 @@
         .topbar h1 .ic { color: var(--ink-3); }
         .whoami { display: flex; align-items: center; gap: 14px; font-size: 13px; }
         .whoami .who { color: var(--ink-2); }
+        .whoami .exit { display: flex; margin: 0; }
         .whoami .out {
             display: inline-flex; align-items: center; gap: 6px;
             color: var(--ink-2); text-decoration: none;
             padding: 6px 10px; border-radius: var(--r);
             border: 1px solid var(--line);
+            /* Кнопка должна выглядеть ровно так же, как выглядела
+               ссылка: свои шрифт и фон браузер ей назначает иначе. */
+            font: inherit; font-size: 13px; background: none;
+            cursor: pointer;
         }
         .whoami .out:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface-alt); }
 
@@ -776,8 +781,20 @@
                 <h1>{% block page_title %}Сводка{% endblock %}</h1>
                 <div class="whoami">
                     <span class="who">{{ user.get_full_name|default:user.username }}</span>
-                    <a href="/logout/" class="out">
-                        <svg class="ic-sm"><use href="#i-logout"></use></svg>Выход</a>
+                    {% comment %}
+                        Выход — отправкой формы, а не ссылкой. Django с пятой
+                        версии на переход по ссылке отвечает «метод не
+                        разрешён», и выйти из системы становится нельзя.
+
+                        Комментарий здесь именно {% comment %}: запись {# #}
+                        работает только в одну строку, а растянутая на
+                        несколько выводится на страницу как текст.
+                    {% endcomment %}
+                    <form method="post" action="{% url 'logout' %}" class="exit">
+                        {% csrf_token %}
+                        <button type="submit" class="out">
+                            <svg class="ic-sm"><use href="#i-logout"></use></svg>Выход</button>
+                    </form>
                 </div>
             </header>
 
