@@ -20,7 +20,7 @@ from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
-from .models import Product
+from .models import Product, ProductPhoto
 
 # Максимальная сторона изображения после обработки
 MAX_SIDE = 1200
@@ -70,6 +70,25 @@ def compress_image(django_file):
     except Exception:
         # Любая проблема с обработкой не должна ломать сохранение товара
         return None
+
+
+@receiver(pre_save, sender=ProductPhoto)
+def compress_extra_photo(sender, instance, **kwargs):
+    """Сжать дополнительную фотографию — так же, как обложку.
+
+    Без этого снимок с телефона уезжает на сервер как есть: три-четыре
+    мегабайта на кадр, восемь кадров на позицию. Витрина открывается
+    минуту, а место на диске кончается незаметно.
+    """
+    if not instance.image:
+        return
+    source = getattr(instance.image, 'file', None)
+    if not isinstance(source, (InMemoryUploadedFile,)) and \
+            not hasattr(source, 'temporary_file_path'):
+        return
+    compressed = compress_image(instance.image)
+    if compressed is not None:
+        instance.image = compressed
 
 
 @receiver(pre_save, sender=Product)

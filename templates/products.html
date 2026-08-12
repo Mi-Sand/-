@@ -76,6 +76,14 @@
                 <input type="text" id="article_number" required>
             </div>
             <div class="form-group">
+                <label>Штрихкод</label>
+                <input type="text" id="barcode" placeholder="можно считать сканером">
+                <div style="font-size:12px; color:var(--ink-3); margin-top:4px;">
+                    Поставьте курсор сюда и поднесите сканер. Пусто —
+                    при печати этикетки будет внутренний номер.
+                </div>
+            </div>
+            <div class="form-group">
                 <label>Наименование *</label>
                 <input type="text" id="name" required>
             </div>
@@ -125,6 +133,17 @@
                 <input type="file" id="photo" accept="image/*" style="width:100%; padding:8px; border:1px solid var(--line-strong); border-radius:4px;">
                 <div id="photoHint" style="font-size:12px; color:var(--ink-3); margin-top:4px;"></div>
                 <div id="photoPreview" style="margin-top:8px;"></div>
+            </div>
+            <div class="form-group">
+                <label>Ещё фотографии</label>
+                <div style="font-size:12px; color:var(--ink-3); margin-bottom:6px;">
+                    Товар на витрине смотрят с нескольких сторон. Первое
+                    фото — обложка, эти показываются полоской под ней.
+                    Можно выбрать сразу несколько файлов, не больше восьми.
+                </div>
+                <input type="file" id="extraPhotos" accept="image/*" multiple
+                    style="width:100%; padding:8px; border:1px solid var(--line-strong); border-radius:4px;">
+                <div id="extraPhotosNow" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;"></div>
             </div>
             <div class="form-group">
                 <label>Видео товара</label>
@@ -208,6 +227,7 @@
                 <td>${p.selling_price}</td>
                 <td><span class="badge ${p.status === 'archived' ? 'badge-archived' : ''}">${statusNames[p.status] || p.status}</span></td>
                 <td><div class="row-actions">
+                    <button class="act" title="Этикетка со штрихкодом" onclick="printLabel(${p.id})"><svg class="ic"><use href="#i-print"></use></svg></button>
                     <button class="act act-edit" title="Редактировать" onclick="editProduct(${p.id})"><svg class="ic"><use href="#i-edit"></use></svg></button>
                     <button class="act act-copy" title="Копировать" onclick="copyProduct(${p.id})"><svg class="ic"><use href="#i-clipboard"></use></svg></button>
                     <button class="act act-del" title="Удалить" onclick="deleteProduct(${p.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>
@@ -224,6 +244,8 @@
         document.getElementById('videoHint').textContent = '';
         document.getElementById('photoPreview').innerHTML = '';
         document.getElementById('videoPreview').innerHTML = '';
+        document.getElementById('extraPhotos').value = '';
+        document.getElementById('extraPhotosNow').innerHTML = '';
         document.getElementById('initialStockBlock').style.display = 'block';
         // Загрузить список складов
         try {
@@ -242,6 +264,7 @@
         document.getElementById('modalTitle').textContent = 'Редактировать продукцию';
         document.getElementById('initialStockBlock').style.display = 'none';
         document.getElementById('article_number').value = p.article_number;
+        document.getElementById('barcode').value = p.barcode || '';
         document.getElementById('name').value = p.name;
         document.getElementById('category').value = p.category;
         document.getElementById('size').value = p.size;
@@ -262,6 +285,8 @@
             ? `<img src="${p.photo}" style="max-width:100%; max-height:180px; border-radius:6px; border:1px solid var(--line);">` : '';
         document.getElementById('videoPreview').innerHTML = p.video
             ? `<video src="${p.video}" controls style="max-width:100%; max-height:200px; border-radius:6px; background:#000;"></video>` : '';
+        document.getElementById('extraPhotos').value = '';
+        showExtraPhotos(p);
         document.getElementById('productModal').classList.add('active');
     }
 
@@ -273,6 +298,9 @@
         document.getElementById('productForm').reset();
         // Подставляем данные исходного товара
         document.getElementById('article_number').value = '';  // артикул уникальный — вводим новый
+        // Штрихкод тоже не копируется: две позиции с одним кодом сканер
+        // не различит.
+        document.getElementById('barcode').value = '';
         document.getElementById('name').value = p.name;
         document.getElementById('category').value = p.category;
         document.getElementById('size').value = p.size;
@@ -288,6 +316,8 @@
         document.getElementById('videoHint').textContent = '';
         document.getElementById('photoPreview').innerHTML = '';
         document.getElementById('videoPreview').innerHTML = '';
+        document.getElementById('extraPhotos').value = '';
+        document.getElementById('extraPhotosNow').innerHTML = '';
         // Показываем блок начального остатка (как при создании нового)
         document.getElementById('initialStockBlock').style.display = 'block';
         try {
@@ -306,6 +336,64 @@
         document.getElementById('productModal').classList.remove('active');
     }
 
+    // Лист этикеток открывается отдельной вкладкой и печатается как
+    // есть: это бумага, а не страница системы.
+    function printLabel(id) {
+        const count = prompt('Сколько этикеток напечатать?', '1');
+        if (count === null) return;
+        const many = Math.max(1, Math.min(100, parseInt(count) || 1));
+        window.open(`/print/labels/?product=${id}&count=${many}`, '_blank');
+    }
+
+    async function uploadExtraPhotos(productId) {
+        const chosen = document.getElementById('extraPhotos').files;
+        if (!productId || !chosen.length) return;
+
+        const fd = new FormData();
+        for (const file of chosen) fd.append('image', file);
+        const answer = await fetch(`/api/products/${productId}/photos/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': getCookie('csrftoken') },
+            body: fd
+        });
+        if (!answer.ok) {
+            let text = 'не удалось загрузить дополнительные фотографии';
+            try { const e = await answer.json(); text = e.error || text; } catch (e) {}
+            // Товар при этом сохранён — об этом и говорим, чтобы человек
+            // не заводил его во второй раз.
+            throw new Error(`товар сохранён, но ${text}`);
+        }
+        document.getElementById('extraPhotos').value = '';
+    }
+
+    // Показать уже загруженные снимки с возможностью убрать лишний.
+    function showExtraPhotos(product) {
+        const box = document.getElementById('extraPhotosNow');
+        const list = (product && product.extra_photos) || [];
+        box.innerHTML = list.map(photo => `
+            <span style="position:relative; display:inline-block;">
+                <img src="${esc(photo.image)}" alt=""
+                     style="width:62px; height:62px; object-fit:cover; border:1px solid var(--line); border-radius:4px;">
+                <button type="button" title="Убрать"
+                    onclick="removeExtraPhoto(${Number(product.id)}, ${Number(photo.id)})"
+                    style="position:absolute; top:-6px; right:-6px; width:20px; height:20px; padding:0;
+                           border:1px solid var(--line-strong); border-radius:50%;
+                           background:var(--surface); color:var(--stop); cursor:pointer; line-height:1;">×</button>
+            </span>`).join('');
+    }
+
+    async function removeExtraPhoto(productId, photoId) {
+        if (!confirm('Убрать эту фотографию?')) return;
+        try {
+            await apiCall(`/products/${productId}/photos/${photoId}/`, 'DELETE');
+            const fresh = await apiCall(`/products/${productId}/`);
+            showExtraPhotos(fresh);
+            loadProducts();
+        } catch (error) {
+            showMessage('Ошибка: ' + error.message, 'error');
+        }
+    }
+
     async function saveProduct(e) {
         e.preventDefault();
 
@@ -313,6 +401,7 @@
         // Обычный JSON не умеет передавать файлы.
         const fd = new FormData();
         fd.append('article_number', document.getElementById('article_number').value);
+        fd.append('barcode', document.getElementById('barcode').value.trim());
         fd.append('name', document.getElementById('name').value);
         fd.append('category', document.getElementById('category').value);
         fd.append('size', document.getElementById('size').value);
@@ -351,6 +440,12 @@
                 try { const err = await res.json(); msg = err.detail || JSON.stringify(err); } catch (e) {}
                 throw new Error(msg);
             }
+            // Дополнительные фотографии отправляются отдельно: они
+            // лежат не в самом товаре, а рядом, и у нового товара
+            // появляются только после того, как он заведён.
+            const saved = await res.json();
+            await uploadExtraPhotos(saved.id || currentEditId);
+
             showMessage(currentEditId ? 'Продукция обновлена' : 'Продукция добавлена', 'success');
             closeModal();
             loadProducts();

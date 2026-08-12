@@ -9,8 +9,8 @@ from django.db import transaction
 from rest_framework import serializers
 
 from .models import (InboundDocument, InboundItem, Material,
-                     OutboundDocument, OutboundItem, Product, Stock,
-                     StockMovement, Supplier, Unit, Warehouse)
+                     OutboundDocument, OutboundItem, Product, ProductPhoto,
+                     Stock, StockMovement, Supplier, Unit, Warehouse)
 
 
 # --- Справочники -----------------------------------------------------------
@@ -39,8 +39,8 @@ class MaterialSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Material
-        fields = ['id', 'name', 'article_number', 'color', 'description',
-                  'unit', 'unit_display',
+        fields = ['id', 'name', 'article_number', 'barcode', 'color',
+                  'description', 'unit', 'unit_display',
                   'category', 'category_display', 'reorder_point']
 
     def validate_unit(self, value):
@@ -59,9 +59,18 @@ class MaterialSerializer(serializers.ModelSerializer):
         return value
 
 
+class ProductPhotoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductPhoto
+        fields = ['id', 'image', 'sort_order']
+
+
 class ProductSerializer(serializers.ModelSerializer):
     category_display = serializers.CharField(
         source='get_category_display', read_only=True)
+    # Дополнительные фотографии — списком, обложка остаётся в поле photo.
+    extra_photos = ProductPhotoSerializer(
+        source='photos', many=True, read_only=True)
     # Необязательные поля: задать начальный остаток при создании продукции
     initial_stock = serializers.DecimalField(
         max_digits=10, decimal_places=2, write_only=True,
@@ -72,10 +81,10 @@ class ProductSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ['id', 'article_number', 'name', 'category',
+        fields = ['id', 'article_number', 'barcode', 'name', 'category',
                   'category_display', 'size', 'color', 'cost',
                   'selling_price', 'status', 'description', 'photo', 'video',
-                  'initial_stock', 'initial_warehouse']
+                  'extra_photos', 'initial_stock', 'initial_warehouse']
 
     def create(self, validated_data):
         initial_stock = validated_data.pop('initial_stock', None)

@@ -113,6 +113,7 @@ page_urlpatterns = [
          name='print-outbound'),
     path('print/order/<int:pk>/', print_views.print_order,
          name='print-order'),
+    path('print/labels/', print_views.print_labels, name='print-labels'),
 ]
 
 urlpatterns = [

@@ -1,0 +1,88 @@
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Этикетки со штрихкодами</title>
+<style>
+    /* Лист этикеток. Отдельная страница от остальных: на бумаге не
+       нужны ни меню, ни кнопки, зато нужны точные размеры — этикетку
+       наклеивают на коробку, и она должна быть одного размера всегда.
+
+       Шрифты только системные: складской компьютер в интернете не
+       бывает, а печатать надо одинаково каждый раз. */
+    :root {
+        --ink: #12202B;
+        --ink-2: #40525E;
+        --line: #C9D2D8;
+        --mono: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; padding: 10mm;
+        font: 12px/1.35 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        color: var(--ink); background: #fff;
+    }
+
+    .sheet {
+        display: grid; gap: 4mm;
+        grid-template-columns: repeat(auto-fill, minmax(62mm, 1fr));
+    }
+    .label {
+        border: 1px dashed var(--line); border-radius: 2mm;
+        padding: 3mm; text-align: center;
+        /* Разрыв страницы посреди этикетки делает её негодной. */
+        break-inside: avoid; page-break-inside: avoid;
+    }
+    .label .name {
+        font-weight: 600; font-size: 12px; line-height: 1.25;
+        /* Длинное название не должно выталкивать штрихкод за край:
+           две строки, дальше — многоточие. */
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden; min-height: 2.6em;
+    }
+    .label .second {
+        color: var(--ink-2); font-size: 10.5px; margin-top: 1mm;
+        min-height: 1.3em;
+    }
+    .label .code { margin-top: 2mm; }
+    .label .code svg { max-width: 100%; height: auto; }
+    .label .plain {
+        font-family: var(--mono); font-size: 11px; margin-top: 1mm;
+    }
+    .empty { color: var(--ink-2); padding: 20mm 0; text-align: center; }
+
+    .hint {
+        margin-bottom: 6mm; padding: 3mm 4mm; background: #F1F4F6;
+        border-left: 3px solid var(--ink); font-size: 11.5px;
+        color: var(--ink-2);
+    }
+    @media print {
+        body { padding: 6mm; }
+        .hint { display: none; }
+        .label { border-color: #DDD; }
+    }
+</style>
+
+<div class="hint">
+    Печать: Ctrl+P. Этикетки размечены под наклейку шириной около 62 мм —
+    на листе А4 их помещается три в ряд. Позиции без своего штрихкода
+    получают внутренний номер вида MAT00000012: для учёта на своём
+    складе этого достаточно.
+</div>
+
+{% if labels %}
+<div class="sheet">
+    {% for label in labels %}
+    <div class="label">
+        <div class="name">{{ label.name }}</div>
+        <div class="second">{{ label.second }}</div>
+        <div class="code">
+            {% if label.drawing %}{{ label.drawing|safe }}{% endif %}
+        </div>
+        {% if not label.drawing %}<div class="plain">{{ label.code }}</div>{% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+    Нечего печатать: не выбрано ни одной позиции.
+</div>
+{% endif %}

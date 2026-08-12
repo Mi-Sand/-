@@ -71,10 +71,14 @@ def render(instance, field):
     останется понятным, даже если запись потом удалят.
     """
     name = field.name
-    if field.choices:
-        getter = getattr(instance, f'get_{name}_display', None)
-        if getter:
-            return short(getter())
+    # Список выбора у поля есть не всегда: единица измерения, например,
+    # берётся из справочника, а не из перечня в коде — но человеческое
+    # название у неё всё равно своё. Поэтому спрашиваем модель, а не
+    # смотрим на наличие списка: раньше смотрели, и в журнале появилось
+    # «kg» вместо «кг».
+    getter = getattr(instance, f'get_{name}_display', None)
+    if callable(getter):
+        return short(getter())
     value = getattr(instance, field.attname if field.is_relation else name,
                     None)
     if field.is_relation:

@@ -87,6 +87,9 @@ def shop_products(request):
 
     qs = (Product.objects
           .filter(status='active')
+          # Фотографии забираем одним запросом на все товары: без этого
+          # витрина делала бы отдельный запрос на каждую позицию.
+          .prefetch_related('photos')
           .annotate(stock_qty=Coalesce(
               Sum('stock__quantity'),
               Value(0, output_field=DecimalField()))))
@@ -130,6 +133,10 @@ def shop_products(request):
             'available': available_qty > 0,
             'description': p.description,
             'photo': p.photo.url if p.photo else None,
+            # Список — для галереи на карточке товара. Поле photo
+            # остаётся: на него опираются превью в списке и старые
+            # закладки покупателей.
+            'photos': p.photo_urls(),
             'video': p.video.url if p.video else None,
         })
 

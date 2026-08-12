@@ -178,6 +178,15 @@
                 <input type="text" id="article_number">
             </div>
             <div class="form-group">
+                <label>Штрихкод</label>
+                <input type="text" id="barcode" placeholder="можно считать сканером">
+                <div style="font-size:12px; color:var(--ink-3); margin-top:4px;">
+                    Поставьте курсор в это поле и поднесите сканер — он
+                    впишет код сам. Если своего кода нет, оставьте пустым:
+                    при печати этикетки система выдаст внутренний номер.
+                </div>
+            </div>
+            <div class="form-group">
                 <label>Цвет</label>
                 <input type="text" id="color">
             </div>
@@ -220,6 +229,15 @@
 <script>
     const categoryNames = {'textile': 'Ткани', 'leather': 'Кожа', 'polymer': 'Полимеры', 'fittings': 'Фурнитура'};
     let unitNames = {};      // код -> обозначение, из справочника
+
+    // Лист этикеток открывается отдельной вкладкой и печатается как
+    // есть: это бумага, а не страница системы.
+    function printLabel(kind, id) {
+        const count = prompt('Сколько этикеток напечатать?', '1');
+        if (count === null) return;
+        const many = Math.max(1, Math.min(100, parseInt(count) || 1));
+        window.open(`/print/labels/?${kind}=${id}&count=${many}`, '_blank');
+    }
 
     async function loadUnits() {
         let list = [];
@@ -289,6 +307,7 @@
                 <td><strong style="color:${low ? 'var(--stop)' : 'var(--ok)'}">${stock}</strong>${low ? ' <svg class="ic"><use href="#i-alert"></use></svg>' : ''}</td>
                 <td>${m.reorder_point}</td>
                 <td><div class="row-actions">
+                    <button class="act" title="Этикетка со штрихкодом" onclick="printLabel('material', ${m.id})"><svg class="ic"><use href="#i-print"></use></svg></button>
                     ${can('catalog') ? `<button class="act act-edit" title="Редактировать" onclick="editMaterial(${m.id})"><svg class="ic"><use href="#i-edit"></use></svg></button>` : ''}
                     ${can('catalog') ? `<button class="act act-copy" title="Копировать" onclick="copyMaterial(${m.id})"><svg class="ic"><use href="#i-clipboard"></use></svg></button>` : ''}
                     ${can('catalog') ? `<button class="act act-del" title="Удалить" onclick="deleteMaterial(${m.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>` : ''}
@@ -311,6 +330,7 @@
         document.getElementById('modalTitle').textContent = 'Редактировать материал';
         document.getElementById('name').value = m.name;
         document.getElementById('article_number').value = m.article_number || '';
+        document.getElementById('barcode').value = m.barcode || '';
         document.getElementById('color').value = m.color || '';
         document.getElementById('description').value = m.description;
         document.getElementById('unit').value = m.unit;
@@ -330,6 +350,9 @@
         document.getElementById('materialForm').reset();
         document.getElementById('name').value = m.name;
         document.getElementById('article_number').value = '';
+        // Штрихкод не копируется: он принадлежит конкретной позиции, и
+        // две позиции с одним кодом сканер различить не сможет.
+        document.getElementById('barcode').value = '';
         document.getElementById('color').value = m.color || '';
         document.getElementById('description').value = m.description || '';
         document.getElementById('unit').value = m.unit;
@@ -349,6 +372,7 @@
         const data = {
             name: document.getElementById('name').value,
             article_number: document.getElementById('article_number').value,
+            barcode: document.getElementById('barcode').value.trim(),
             color: document.getElementById('color').value,
             description: document.getElementById('description').value,
             unit: document.getElementById('unit').value,

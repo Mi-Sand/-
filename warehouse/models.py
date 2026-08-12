@@ -103,6 +103,10 @@ class Material(models.Model):
 
     name = models.CharField('Наименование', max_length=255, db_index=True)
     article_number = models.CharField('Артикул', max_length=50, blank=True)
+    # Штрихкод для приёмки сканером. Пустой допустим: не на всё сырьё он
+    # есть, а требовать его заведения — значит остановить работу.
+    barcode = models.CharField('Штрихкод', max_length=32, blank=True,
+                               db_index=True)
     color = models.CharField('Цвет', max_length=50, blank=True)
     description = models.TextField('Описание', blank=True)
     # Здесь код единицы, а не выбор из списка: список живёт в таблице
@@ -149,6 +153,9 @@ class Product(models.Model):
     ]
 
     article_number = models.CharField('Артикул', max_length=50, unique=True)
+    # См. пояснение у материала.
+    barcode = models.CharField('Штрихкод', max_length=32, blank=True,
+                               db_index=True)
     name = models.CharField('Наименование', max_length=255, db_index=True)
     category = models.CharField(
         'Категория', max_length=50, choices=CATEGORY_CHOICES, db_index=True)
@@ -176,6 +183,49 @@ class Product(models.Model):
 
     def __str__(self):
         return f'{self.article_number} {self.name} ({self.size})'
+
+    def photo_urls(self):
+        """Все фотографии товара, обложка первой.
+
+        Обложка живёт в самом товаре, остальные — отдельными записями.
+        Собирать их в одном месте нужно затем, чтобы витрина, списки и
+        печатные формы не расходились в том, что считать первой.
+        """
+        urls = []
+        if self.photo:
+            urls.append(self.photo.url)
+        urls.extend(photo.image.url for photo in self.photos.all()
+                    if photo.image)
+        return urls
+
+
+class ProductPhoto(models.Model):
+    """Дополнительная фотография товара.
+
+    Одной фотографии витрине мало: обувь смотрят с нескольких сторон, у
+    инвентаря важны крепления и швы. Покупатель, который не разглядел
+    товар, либо не заказывает, либо возвращает — и то и другое дороже
+    второго снимка.
+
+    Первая фотография (обложка) осталась в самом товаре: на неё
+    ссылается и витрина, и списки, и печатные формы. Здесь — остальные.
+    """
+
+    product = models.ForeignKey(
+        'Product', on_delete=models.CASCADE, related_name='photos',
+        verbose_name='Товар')
+    image = models.FileField('Фото', upload_to='products/photos/')
+    sort_order = models.PositiveSmallIntegerField('Порядок', default=100)
+    uploaded_at = models.DateTimeField('Загружено', auto_now_add=True)
+
+    class Meta:
+        db_table = 'product_photos'
+        ordering = ['sort_order', 'id']
+        verbose_name = 'Фотография товара'
+        verbose_name_plural = 'Фотографии товара'
+
+    def __str__(self):
+        return f'Фото {self.product}'
 
 
 class Warehouse(models.Model):

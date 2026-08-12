@@ -11,18 +11,20 @@ from django.db.models import DecimalField, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 
 from accounts.permissions import CanEditDocuments, CanManageCatalog
 from rest_framework.response import Response
 
 from .models import (InboundDocument, Material, OutboundDocument, Product,
-                     Stock, StockMovement, Supplier, Unit, Warehouse)
+                     ProductPhoto, Stock, StockMovement, Supplier, Unit,
+                     Warehouse)
 from .params import contains_any_case, read_date
 from .serializers import (InboundDocumentSerializer, MaterialSerializer,
-                          OutboundDocumentSerializer, ProductSerializer,
-                          StockMovementSerializer, StockSerializer,
-                          SupplierSerializer, UnitSerializer,
+                          OutboundDocumentSerializer, ProductPhotoSerializer,
+                          ProductSerializer, StockMovementSerializer,
+                          StockSerializer, SupplierSerializer, UnitSerializer,
                           WarehouseSerializer)
 from .services import (InsufficientStockError, process_inbound_document,
                        process_outbound_document, produce_product,
@@ -141,7 +143,9 @@ class MaterialViewSet(TextSearchMixin, CatalogDeleteGuardMixin,
     serializer_class = MaterialSerializer
     permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'unit']
-    text_search_fields = ('name', 'description', 'article_number')
+    # Штрихкод в поиске: со сканером его вводят в то же поле, что и
+    # название, — прибор просто «печатает» цифры и жмёт ввод.
+    text_search_fields = ('name', 'description', 'article_number', 'barcode')
     ordering_fields = ['name', 'category', 'reorder_point']
     guard_field = 'material'
     guard_subject = 'материал'
@@ -223,13 +227,65 @@ class ProductViewSet(TextSearchMixin, CatalogDeleteGuardMixin,
     serializer_class = ProductSerializer
     permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'size', 'color', 'status']
-    text_search_fields = ('name', 'article_number', 'color')
+    text_search_fields = ('name', 'article_number', 'barcode', 'color')
     ordering_fields = ['name', 'article_number', 'selling_price']
     guard_field = 'product'
     guard_subject = 'продукцию'
     guard_advice = ('Чтобы убрать позицию из обращения, поставьте ей '
                     'состояние «Снят с производства» — она пропадёт '
                     'с витрины, а история отгрузок сохранится.')
+
+    #: Больше одной фотографии на позицию витрине мало, но и без предела
+    #: нельзя: страница товара с полусотней снимков грузится дольше, чем
+    #: покупатель готов ждать.
+    MAX_PHOTOS = 8
+
+    @action(detail=True, methods=['get', 'post'],
+            parser_classes=[MultiPartParser, FormParser])
+    def photos(self, request, pk=None):
+        """Дополнительные фотографии товара."""
+        product = self.get_object()
+
+        if request.method == 'GET':
+            return Response(ProductPhotoSerializer(
+                product.photos.all(), many=True).data)
+
+        files = request.FILES.getlist('image') or request.FILES.getlist('images')
+        if not files:
+            return Response({'error': 'Не приложен файл фотографии.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        already = product.photos.count()
+        if already + len(files) > self.MAX_PHOTOS:
+            return Response(
+                {'error': f'Больше {self.MAX_PHOTOS} дополнительных '
+                          f'фотографий на позицию не бывает. Сейчас '
+                          f'{already}.'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        made = []
+        for number, uploaded in enumerate(files):
+            made.append(ProductPhoto.objects.create(
+                product=product, image=uploaded,
+                sort_order=already + number))
+        return Response(ProductPhotoSerializer(made, many=True).data,
+                        status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'],
+            url_path=r'photos/(?P<photo_id>\d+)')
+    def delete_photo(self, request, pk=None, photo_id=None):
+        """Убрать одну фотографию."""
+        product = self.get_object()
+        photo = product.photos.filter(pk=photo_id).first()
+        if not photo:
+            return Response({'error': 'Такой фотографии у товара нет.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        # Файл с диска убираем тоже: иначе папка media растёт от каждой
+        # замены снимка, и на складском компьютере это однажды заметят
+        # по свободному месту.
+        photo.image.delete(save=False)
+        photo.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class WarehouseViewSet(CatalogDeleteGuardMixin, viewsets.ModelViewSet):

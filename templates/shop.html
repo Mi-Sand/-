@@ -209,6 +209,20 @@
             border-radius: var(--r-lg) var(--r-lg) 0 0;
         }
         .modal-img img { width: 100%; height: 100%; object-fit: contain; }
+        /* Полоска снимков под большим. Появляется только когда снимков
+           больше одного: ради единственного занимать место незачем. */
+        .thumbs {
+            display: flex; gap: 8px; padding: 10px 18px; overflow-x: auto;
+            border-bottom: 1px solid var(--line); background: var(--surface);
+        }
+        .thumbs:empty { display: none; }
+        .thumbs button {
+            flex: 0 0 auto; width: 56px; height: 56px; padding: 3px;
+            background: #fff; border: 1px solid var(--line);
+            border-radius: var(--r); cursor: pointer;
+        }
+        .thumbs button.on { border-color: var(--mark); border-width: 2px; padding: 2px; }
+        .thumbs img { width: 100%; height: 100%; object-fit: contain; }
         .modal-img .no-photo svg { width: 60px; height: 60px; }
         .modal-body { padding: 24px; }
         .modal-head { margin-bottom: 20px; }
@@ -539,6 +553,7 @@
             <button class="modal-close" onclick="closeModal()" aria-label="Закрыть">
                 <svg class="ic"><use href="#i-x"></use></svg></button>
             <div class="modal-img" id="m_img"></div>
+            <div class="thumbs" id="m_thumbs"></div>
             <div class="modal-body">
                 <div class="modal-head">
                     <div class="modal-cat" id="m_cat"></div>
@@ -607,6 +622,39 @@
             'Аксессуары':  'bag',
             'Инвентарь':   'box',
         };
+        // Показать снимки варианта: большой и полоску мелких.
+        function showPhotos(v, p) {
+            const imgBox = document.getElementById('m_img');
+            const strip = document.getElementById('m_thumbs');
+            const list = (v.photos && v.photos.length)
+                ? v.photos : (v.photo ? [v.photo] : []);
+
+            if (!list.length) {
+                // Здесь именно innerHTML: значок категории — разметка
+                // <svg>, и через textContent теги вывелись бы буквально.
+                imgBox.innerHTML = categoryIcon(p.category);
+                strip.innerHTML = '';
+                return;
+            }
+
+            const show = number => {
+                imgBox.innerHTML =
+                    `<img src="${esc(list[number])}" alt="${esc(p.name)}">`;
+                strip.querySelectorAll('button').forEach((b, i) =>
+                    b.classList.toggle('on', i === number));
+            };
+
+            strip.innerHTML = list.length > 1
+                ? list.map((url, i) =>
+                    `<button type="button" data-n="${i}">` +
+                    `<img src="${esc(url)}" alt=""></button>`).join('')
+                : '';
+            strip.querySelectorAll('button').forEach(button =>
+                button.addEventListener('click',
+                    () => show(Number(button.dataset.n))));
+            show(0);
+        }
+
         function categoryIcon(category) {
             const name = CATEGORY_ICONS[category] || 'box';
             return `<div class="no-photo">
@@ -814,11 +862,9 @@
             currentVariant = v;
             const p = currentProduct;
 
-            // Фото выбранного размера (если нет — значок категории)
-            const imgBox = document.getElementById('m_img');
-            imgBox.innerHTML = v.photo
-                ? `<img src="${esc(v.photo)}" alt="${esc(p.name)}">`
-                : categoryIcon(p.category);
+            // Фотографии выбранного размера. Первая — обложка;
+            // остальные показываются полоской под ней.
+            showPhotos(v, p);
 
             document.getElementById('m_article').textContent = 'Артикул: ' + v.article;
             // Здесь именно innerHTML: строка содержит разметку.

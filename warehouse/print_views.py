@@ -119,3 +119,79 @@ def print_order(request, pk):
         'total': sum(row['sum'] for row in rows),
         'signatures': [('Собрал', 'кладовщик'), ('Выдал', '')],
     })
+
+
+@login_required
+def print_labels(request):
+    """Лист этикеток со штрихкодами.
+
+    Приёмка шла глазами и руками: кладовщик искал позицию в списке по
+    названию. Со сканером он подносит прибор к коробке, и позиция
+    находится сама — но для этого на коробке должна быть этикетка.
+
+    Что печатать, задаётся в адресе:
+
+        /print/labels/?material=3&count=12
+        /print/labels/?product=7&product=8
+
+    Позиции без штрихкода получают внутренний номер: покупать диапазон
+    у регистратора нужно только тому, кто отдаёт товар в чужие
+    магазины, а для своего склада хватает собственной нумерации.
+    """
+    from .barcode import BarcodeError, suggest
+    from .barcode import svg as barcode_svg
+    from .models import Material, Product
+    from .params import read_id
+
+    # Сколько одинаковых этикеток на позицию. Сотня — предел разумного:
+    # больше на лист всё равно не влезет, а опечатка в адресе не должна
+    # заставлять принтер печатать до утра.
+    count = read_id(request.GET.get('count')) or 1
+    count = min(count, 100)
+
+    wanted = []
+    for value in request.GET.getlist('material'):
+        number = read_id(value)
+        if number:
+            wanted.append(('material', number))
+    for value in request.GET.getlist('product'):
+        number = read_id(value)
+        if number:
+            wanted.append(('product', number))
+
+    labels = []
+    for kind, number in wanted:
+        if kind == 'material':
+            item = Material.objects.filter(pk=number).first()
+            if not item:
+                continue
+            code = item.barcode or suggest('MAT', item.pk)
+            second = item.article_number or item.get_unit_display()
+        else:
+            item = Product.objects.filter(pk=number).first()
+            if not item:
+                continue
+            code = item.barcode or suggest('PRD', item.pk)
+            second = f'{item.article_number} · {item.size} · {item.color}'
+
+        try:
+            drawing = barcode_svg(code)
+        except BarcodeError as error:
+            # Одна негодная позиция не должна оставить кладовщика вовсе
+            # без листа: печатаем остальные, а про эту говорим на самой
+            # этикетке.
+            drawing = None
+            second = str(error)
+
+        for _ in range(count):
+            labels.append({
+                'name': item.name,
+                'second': second,
+                'code': code,
+                'drawing': drawing,
+            })
+
+    return render(request, 'print_labels.html', {
+        'labels': labels,
+        'count': count,
+    })
