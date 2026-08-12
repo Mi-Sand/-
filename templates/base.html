@@ -764,6 +764,8 @@
                     <svg class="ic"><use href="#i-clipboard"></use></svg>Инвентаризация</a>
                 <a href="/reports/" class="{% if active == 'reports' %}active{% endif %}">
                     <svg class="ic"><use href="#i-chart"></use></svg>Отчёты</a>
+                <a href="/trash/" class="{% if active == 'trash' %}active{% endif %}">
+                    <svg class="ic"><use href="#i-trash"></use></svg>Корзина</a>
                 <a href="/audit/" class="{% if active == 'audit' %}active{% endif %}">
                     <svg class="ic"><use href="#i-history"></use></svg>Журнал действий</a>
                 {% if user.is_superuser or user.role == 'admin' %}

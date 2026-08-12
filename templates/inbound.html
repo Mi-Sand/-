@@ -341,7 +341,11 @@
 
     function showMessage(text, type) {
         const msg = document.getElementById('message');
-        msg.innerHTML = `<div class="alert alert-${type.includes('') ? 'error' : 'success'}">${text}</div>`;
+        // Раньше здесь стояла проверка вида type.includes('') — она верна
+        // для любой строки, и удачные сообщения тоже выводились красным,
+        // как ошибка. Вид сообщения приходит явно, его и берём.
+        const kind = type === 'success' ? 'success' : 'error';
+        msg.innerHTML = `<div class="alert alert-${kind}">${esc(text)}</div>`;
         setTimeout(() => { msg.innerHTML = ''; }, 4000);
     }
 

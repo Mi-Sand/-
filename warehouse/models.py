@@ -11,6 +11,42 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 
+class NotDeletedManager(models.Manager):
+    """Обычная работа: удалённых документов не видно.
+
+    Документ, удалённый по ошибке, раньше пропадал совсем. Теперь он
+    только помечается удалённым и лежит в корзине, откуда его можно
+    вернуть. Чтобы это не потребовало правок по всему коду — отчётам,
+    страницам, выгрузкам, — обычный `objects` удалённых не показывает,
+    а добраться до них можно через `all_objects`.
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
+class Deletable(models.Model):
+    """Пометка «удалён» вместо настоящего удаления."""
+
+    deleted_at = models.DateTimeField(
+        'Удалён', null=True, blank=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+', verbose_name='Удалил')
+
+    # Порядок важен: первый по счёту менеджер становится основным, и
+    # именно им пользуются связи и служебная панель.
+    objects = NotDeletedManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        abstract = True
+
+    @property
+    def deleted(self):
+        return self.deleted_at is not None
+
+
 # ===========================================================================
 #  СПРАВОЧНИКИ
 # ===========================================================================
@@ -136,10 +172,14 @@ class Supplier(models.Model):
 # ===========================================================================
 #  ДОКУМЕНТЫ ОПЕРАЦИЙ И ИХ СТРОКИ
 # ===========================================================================
-class InboundDocument(models.Model):
+class InboundDocument(Deletable):
     """Приходный документ — поступление товаров (фрагмент 6)."""
 
-    doc_number = models.CharField('Номер', max_length=50, unique=True)
+    # Номер уникален среди действующих документов, а не вообще всех.
+    # Иначе удалённый по ошибке документ держал бы свой номер занятым,
+    # и завести взамен него новый с тем же номером было бы нельзя до
+    # самой очистки корзины.
+    doc_number = models.CharField('Номер', max_length=50, db_index=True)
     doc_date = models.DateField('Дата')
     supplier = models.ForeignKey(
         Supplier, on_delete=models.PROTECT, verbose_name='Поставщик')
@@ -156,6 +196,12 @@ class InboundDocument(models.Model):
         ordering = ['-doc_date', '-id']
         verbose_name = 'Приходный документ'
         verbose_name_plural = 'Приходные документы'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['doc_number'],
+                condition=models.Q(deleted_at__isnull=True),
+                name='inbound_number_unique_among_live'),
+        ]
 
     def __str__(self):
         return f'Приход № {self.doc_number} от {self.doc_date}'
@@ -207,7 +253,7 @@ class InboundItem(models.Model):
         return str(self.material or self.product or '—')
 
 
-class OutboundDocument(models.Model):
+class OutboundDocument(Deletable):
     """Расходный документ — отпуск товаров (фрагмент 9)."""
 
     PURPOSE_CHOICES = [
@@ -216,7 +262,8 @@ class OutboundDocument(models.Model):
         ('writeoff', 'Списание'),
     ]
 
-    doc_number = models.CharField('Номер', max_length=50, unique=True)
+    # Уникален среди действующих — см. пояснение у прихода.
+    doc_number = models.CharField('Номер', max_length=50, db_index=True)
     doc_date = models.DateField('Дата')
     warehouse = models.ForeignKey(
         Warehouse, on_delete=models.PROTECT, verbose_name='Склад')
@@ -235,6 +282,12 @@ class OutboundDocument(models.Model):
         ordering = ['-doc_date', '-id']
         verbose_name = 'Расходный документ'
         verbose_name_plural = 'Расходные документы'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['doc_number'],
+                condition=models.Q(deleted_at__isnull=True),
+                name='outbound_number_unique_among_live'),
+        ]
 
     def __str__(self):
         return f'Расход № {self.doc_number} от {self.doc_date}'

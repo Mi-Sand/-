@@ -58,6 +58,10 @@ api_urlpatterns = [
          name='report-stock-export'),
     path('api/dashboard/', wh_views.dashboard_summary,
          name='dashboard-summary'),
+    # --- Корзина удалённых документов ---
+    path('api/trash/', wh_views.trash_list, name='trash-list'),
+    path('api/trash/<str:kind>/<int:pk>/restore/', wh_views.trash_restore,
+         name='trash-restore'),
     # --- Документы для бухгалтерии ---
     path('api/orders/<int:pk>/invoice/', billing_views.order_invoice,
          name='order-invoice'),
@@ -98,6 +102,7 @@ page_urlpatterns = [
     path('production/', pages.production_page, name='production-page'),
     path('employees/', pages.employees_page, name='employees-page'),
     path('orders/', pages.orders_page, name='orders-page'),
+    path('trash/', pages.trash_page, name='trash-page'),
     path('audit/', audit_page, name='audit-page'),
     # Печатные формы: открываются в отдельной вкладке из списка
     # документов и печатаются как есть.

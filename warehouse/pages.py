@@ -40,6 +40,16 @@ def inventory_page(request):
 
 
 @login_required
+def trash_page(request):
+    """Корзина удалённых документов."""
+    from django.conf import settings
+    return render(request, 'trash.html', {
+        'active': 'trash',
+        'keep_days': getattr(settings, 'TRASH_KEEP_DAYS', 30),
+    })
+
+
+@login_required
 def reports_page(request):
     return render(request, 'reports.html', {'active': 'reports'})
 

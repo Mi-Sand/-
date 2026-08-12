@@ -27,6 +27,9 @@ from .services import (InsufficientStockError, process_inbound_document,
                        process_outbound_document, produce_product,
                        unprocess_inbound_document,
                        unprocess_outbound_document)
+from .trash import KINDS as TRASH_KINDS
+from .trash import items as trash_items
+from .trash import mark_deleted, restore
 
 
 class CatalogDeleteGuardMixin:
@@ -221,6 +224,9 @@ class InboundDocumentViewSet(DocumentSearchMixin, viewsets.ModelViewSet):
         Проведённый документ уже изменил остатки на складе. Его удаление
         оставило бы товар на складе без документа-основания и нарушило бы
         целостность учёта.
+
+        Непроведённый не пропадает совсем: он уходит в корзину, откуда
+        его можно вернуть. Удаляют обычно второпях и не тот документ.
         """
         doc = self.get_object()
         if doc.processed:
@@ -228,7 +234,8 @@ class InboundDocumentViewSet(DocumentSearchMixin, viewsets.ModelViewSet):
                 {'error': 'Нельзя удалить проведённый документ. '
                           'Сначала отмените проведение (сторно).'},
                 status=status.HTTP_400_BAD_REQUEST)
-        return super().destroy(request, *args, **kwargs)
+        mark_deleted(doc, user=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def update(self, request, *args, **kwargs):
         """Проведённый документ нельзя редактировать."""
@@ -283,14 +290,18 @@ class OutboundDocumentViewSet(DocumentSearchMixin, viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, *args, **kwargs):
-        """Удалять можно только непроведённые документы."""
+        """Удалять можно только непроведённые документы.
+
+        Удалённый уходит в корзину — см. пояснение у прихода.
+        """
         doc = self.get_object()
         if doc.processed:
             return Response(
                 {'error': 'Нельзя удалить проведённый документ. '
                           'Сначала отмените проведение (сторно).'},
                 status=status.HTTP_400_BAD_REQUEST)
-        return super().destroy(request, *args, **kwargs)
+        mark_deleted(doc, user=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def update(self, request, *args, **kwargs):
         """Проведённый документ нельзя редактировать."""
@@ -490,3 +501,42 @@ def produce_view(request):
     except (KeyError, ValueError) as e:
         return Response({'error': f'Некорректные данные: {e}'},
                         status=status.HTTP_400_BAD_REQUEST)
+
+
+# --- Корзина удалённых документов -------------------------------------------
+@api_view(['GET'])
+@permission_classes([CanEditDocuments])
+def trash_list(request):
+    """Что лежит в корзине.
+
+    Смотреть корзину незачем тому, кто и удалять не вправе, поэтому
+    право здесь то же самое, что на правку документов.
+    """
+    rows = trash_items(kind=request.query_params.get('kind') or None)
+    return Response({'count': len(rows), 'results': rows})
+
+
+@api_view(['POST'])
+@permission_classes([CanEditDocuments])
+def trash_restore(request, kind, pk):
+    """Вернуть документ из корзины."""
+    entry = TRASH_KINDS.get(kind)
+    if not entry:
+        return Response({'error': f'Неизвестный вид документа: {kind}'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    model = entry[0]
+    document = model.all_objects.filter(pk=pk,
+                                        deleted_at__isnull=False).first()
+    if not document:
+        return Response({'error': 'Документ в корзине не найден. '
+                                  'Возможно, его уже вернули или '
+                                  'вычистили по сроку.'},
+                        status=status.HTTP_404_NOT_FOUND)
+    try:
+        restore(document)
+    except ValueError as error:
+        return Response({'error': str(error)},
+                        status=status.HTTP_400_BAD_REQUEST)
+    return Response({'status': 'ok',
+                     'detail': f'Документ {document.doc_number} возвращён'})

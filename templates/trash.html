@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% block title %}Корзина | Складской учёт{% endblock %}
+{% block page_title %}<svg class="ic"><use href="#i-trash"></use></svg> Корзина{% endblock %}
+
+{% block extra_css %}
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    table th {
+        background: var(--surface-alt); padding: 10px 12px; text-align: left;
+        font-weight: 600; border-bottom: 2px solid var(--line-strong);
+        white-space: nowrap;
+    }
+    /* Только для широкого экрана: на узком base.html разворачивает
+       таблицу в карточки со своими отступами, а это правило идёт в
+       общем наборе стилей позже и перебило бы их. */
+    @media (min-width: 721px) {
+        table td {
+            padding: 10px 12px; border-bottom: 1px solid var(--line);
+            vertical-align: top;
+        }
+    }
+    table tr:hover { background: var(--surface-alt); }
+
+    .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .when { font-family: var(--mono); font-variant-numeric: tabular-nums;
+        white-space: nowrap; color: var(--ink-2); }
+    .kind-tag {
+        display: inline-block; padding: 3px 9px; border-radius: 3px;
+        font-size: 12px; white-space: nowrap;
+        background: var(--surface-alt); color: var(--ink-2);
+    }
+    /* Срок, после которого документ вычистят насовсем. Когда осталось
+       мало, это единственное, что отличает «ещё можно вернуть» от
+       «уже поздно», — поэтому цветом. */
+    .left-much { color: var(--ink-3); }
+    .left-soon { color: var(--mark); font-weight: 600; }
+    .left-none { color: var(--stop); font-weight: 600; }
+
+    .alert {
+        padding: 12px 15px; border-radius: 4px; margin-bottom: 16px;
+        border-left: 4px solid;
+    }
+    .alert-success { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+    .alert-error { background: var(--stop-soft); color: var(--stop); border-color: var(--stop); }
+
+    .loading, .empty { text-align: center; padding: 40px; color: var(--ink-3); }
+    .note-line { color: var(--ink-3); font-size: 13px; margin-bottom: 14px; }
+{% endblock %}
+
+{% block content %}
+<div class="note-line">
+    Сюда попадают удалённые непроведённые документы. Их можно вернуть —
+    в списках и отчётах они пока не показываются. Через
+    <span class="num">{{ keep_days }}</span> дн. после удаления документ
+    вычищается насовсем.
+</div>
+
+<div id="message"></div>
+<div id="area"><div class="loading">Загрузка...</div></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Короткое сообщение об удаче или отказе. Держится четыре секунды:
+    // читать его специально не нужно, а мешать работе оно не должно.
+    function note(text, kind) {
+        const box = document.getElementById('message');
+        box.innerHTML = `<div class="alert alert-${kind === 'success' ? 'success' : 'error'}">${esc(text)}</div>`;
+        setTimeout(() => { box.innerHTML = ''; }, 4000);
+    }
+
+    function leftClass(days) {
+        if (days <= 0) return 'left-none';
+        return days <= 3 ? 'left-soon' : 'left-much';
+    }
+
+    function row(entry) {
+        const days = Number(entry.days_left);
+        const left = days <= 0
+            ? 'вычистится ближайшей ночью'
+            : `${days} дн.`;
+        // Здесь именно innerHTML: строка содержит значок в виде <svg>,
+        // и через textContent теги вывелись бы буквально.
+        return `<tr>
+            <td><span class="kind-tag">${esc(entry.kind_title)}</span></td>
+            <td><strong>${esc(entry.doc_number)}</strong>
+                <span class="num" style="color: var(--ink-3)"> от ${ruDate(entry.doc_date)}</span></td>
+            <td>${esc(entry.warehouse)}</td>
+            <td class="num">${esc(String(entry.lines))}</td>
+            <td class="when">${when(entry.deleted_at)}</td>
+            <td>${esc(entry.deleted_by) || '<span style="color: var(--ink-3)">—</span>'}</td>
+            <td class="${leftClass(days)}">${esc(left)}</td>
+            <td><button class="btn btn-secondary"
+                    onclick="restore('${esc(entry.kind)}', ${Number(entry.id)}, this)">
+                <svg class="ic-sm"><use href="#i-undo"></use></svg>Вернуть</button></td>
+        </tr>`;
+    }
+
+    function when(value) {
+        const d = new Date(value);
+        if (isNaN(d)) return '';
+        const two = n => String(n).padStart(2, '0');
+        return `${two(d.getDate())}.${two(d.getMonth() + 1)}.${d.getFullYear()} ` +
+               `${two(d.getHours())}:${two(d.getMinutes())}`;
+    }
+
+    async function load() {
+        const area = document.getElementById('area');
+        area.innerHTML = '<div class="loading">Загрузка...</div>';
+
+        let data;
+        try {
+            data = await apiCall('/trash/');
+        } catch (error) {
+            area.innerHTML = `<div class="empty">Не удалось загрузить корзину: ${esc(error.message)}</div>`;
+            return;
+        }
+
+        const list = data.results || [];
+        if (!list.length) {
+            area.innerHTML = '<div class="empty">Корзина пуста</div>';
+            return;
+        }
+
+        area.innerHTML = `<table><thead><tr>
+            <th>Вид</th><th>Документ</th><th>Склад</th><th>Строк</th>
+            <th>Удалён</th><th>Кем</th><th>Осталось</th><th></th>
+        </tr></thead><tbody>${list.map(row).join('')}</tbody></table>`;
+    }
+
+    async function restore(kind, id, button) {
+        button.disabled = true;
+        try {
+            const answer = await apiCall(`/trash/${kind}/${id}/restore/`, 'POST');
+            note(answer.detail || 'Документ возвращён', 'success');
+            load();
+        } catch (error) {
+            button.disabled = false;
+            note(error.message, 'error');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', load);
+</script>
+{% endblock %}
