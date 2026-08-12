@@ -4,7 +4,14 @@ from django.contrib import admin
 from .models import (InboundDocument, InboundItem, Material, Order,
                      OrderItem, OutboundDocument, OutboundItem, PriceHistory,
                      Product, ProductionMaterial, ProductionRun,
-                     Stock, StockMovement, Supplier, Warehouse)
+                     Stock, StockMovement, Supplier, Unit, Warehouse)
+
+
+@admin.register(Unit)
+class UnitAdmin(admin.ModelAdmin):
+    list_display = ('name', 'full_name', 'code', 'okei', 'builtin')
+    list_filter = ('builtin',)
+    search_fields = ('name', 'full_name', 'code')
 
 
 @admin.register(Material)

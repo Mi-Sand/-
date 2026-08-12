@@ -17,12 +17,13 @@ from accounts.permissions import CanEditDocuments, CanManageCatalog
 from rest_framework.response import Response
 
 from .models import (InboundDocument, Material, OutboundDocument, Product,
-                     Stock, StockMovement, Supplier, Warehouse)
+                     Stock, StockMovement, Supplier, Unit, Warehouse)
 from .params import contains_any_case, read_date
 from .serializers import (InboundDocumentSerializer, MaterialSerializer,
                           OutboundDocumentSerializer, ProductSerializer,
                           StockMovementSerializer, StockSerializer,
-                          SupplierSerializer, WarehouseSerializer)
+                          SupplierSerializer, UnitSerializer,
+                          WarehouseSerializer)
 from .services import (InsufficientStockError, process_inbound_document,
                        process_outbound_document, produce_product,
                        unprocess_inbound_document,
@@ -160,6 +161,60 @@ class MaterialViewSet(TextSearchMixin, CatalogDeleteGuardMixin,
             'current_stock': m.total,
         } for m in qs]
         return Response(data)
+
+
+class UnitViewSet(viewsets.ModelViewSet):
+    """Единицы измерения — свои, а не пять на всех."""
+
+    queryset = Unit.objects.all()
+    serializer_class = UnitSerializer
+    permission_classes = [CanManageCatalog]
+    # Список короткий: полсотни единиц — уже много. Постраничная
+    # выдача здесь только мешала бы выбору в формах.
+    pagination_class = None
+
+    def destroy(self, request, *args, **kwargs):
+        """Единицу, которой пользуются, удалять нельзя.
+
+        Иначе у материалов остался бы код, которому ничего не
+        соответствует: в накладной вместо «кг» оказался бы «kg», и это
+        заметили бы не сразу. Встроенные не удаляются вовсе — на них
+        стоит вся заведённая номенклатура.
+        """
+        unit = self.get_object()
+        if unit.builtin:
+            return Response(
+                {'error': f'Единица «{unit.name}» встроенная, её удалить '
+                          f'нельзя. Можно изменить обозначение.'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        used = Material.objects.filter(unit=unit.code).count()
+        if used:
+            return Response(
+                {'error': f'Единицу «{unit.name}» нельзя удалить: по ней '
+                          f'ведётся учёт материалов ({used}). Переведите '
+                          f'их на другую единицу, потом удаляйте.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        return super().destroy(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        """Код менять нельзя — на него ссылаются материалы.
+
+        Обозначение и полное название править можно: они только для
+        показа. А смена кода тихо оторвала бы от единицы все материалы,
+        которые на неё ссылаются.
+        """
+        unit = self.get_object()
+        new_code = request.data.get('code')
+        if new_code and new_code != unit.code:
+            used = Material.objects.filter(unit=unit.code).count()
+            if used or unit.builtin:
+                return Response(
+                    {'error': 'Код единицы менять нельзя: на него ссылаются '
+                              'материалы. Обозначение и название измените, '
+                              'а для другого кода заведите новую единицу.'},
+                    status=status.HTTP_400_BAD_REQUEST)
+        return super().update(request, *args, **kwargs)
 
 
 class ProductViewSet(TextSearchMixin, CatalogDeleteGuardMixin,

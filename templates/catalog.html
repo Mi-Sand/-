@@ -67,6 +67,8 @@
         <svg class="ic"><use href="#i-factory"></use></svg>Поставщики</button>
     <button class="tab" onclick="switchTab('warehouses', this)">
         <svg class="ic"><use href="#i-box"></use></svg>Склады</button>
+    <button class="tab" onclick="switchTab('units', this)">
+        <svg class="ic"><use href="#i-ruler"></use></svg>Единицы измерения</button>
 
     <!-- Действие стоит в той же строке, что и вкладки: добавляют всегда
          в тот раздел, который открыт, поэтому разносить их незачем -->
@@ -117,6 +119,33 @@
     </div>
 </div>
 
+<!-- Модальное окно единицы измерения -->
+<div class="modal" id="unitModal">
+    <div class="modal-content">
+        <h2 id="unitTitle">Добавить единицу измерения</h2>
+        <form id="unitForm">
+            <div class="form-group"><label>Обозначение *</label>
+                <input type="text" id="u_name" required placeholder="пара">
+                <small style="color: var(--ink-3)">Как пишут в накладной: пара, рулон, упак.</small>
+            </div>
+            <div class="form-group"><label>Код *</label>
+                <input type="text" id="u_code" required placeholder="pair">
+                <small style="color: var(--ink-3)">Служебный, короткий, латиницей. Потом не меняется.</small>
+            </div>
+            <div class="form-group"><label>Полное название</label>
+                <input type="text" id="u_full" placeholder="Пара"></div>
+            <div class="form-group"><label>Код ОКЕИ</label>
+                <input type="text" id="u_okei" placeholder="715">
+                <small style="color: var(--ink-3)">Для накладных и счетов-фактур. Необязателен.</small>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="closeModals()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
     let currentTab = 'suppliers';
     let editId = null;
@@ -130,7 +159,8 @@
         // Подпись кнопки говорит, что именно добавится — иначе на странице
         // с двумя разделами приходится догадываться
         document.getElementById('addLabel').textContent =
-            tab === 'suppliers' ? 'Поставщик' : 'Склад';
+            {suppliers: 'Поставщик', warehouses: 'Склад',
+             units: 'Единица'}[tab];
         loadData();
     }
 
@@ -139,6 +169,7 @@
         area.innerHTML = '<div class="loading">Загрузка...</div>';
         try {
             if (currentTab === 'suppliers') await loadSuppliers(area);
+            else if (currentTab === 'units') await loadUnits(area);
             else await loadWarehouses(area);
         } catch (error) {
             area.innerHTML = `<div class="alert alert-error">Ошибка: ${esc(error.message)}</div>`;
@@ -186,9 +217,65 @@
         </tbody></table>`;
     }
 
+    async function loadUnits(area) {
+        const list = await apiCallAll('/units/');
+        if (list.length === 0) { area.innerHTML = '<div class="empty">Единиц пока нет</div>'; return; }
+        area.innerHTML = `<table><thead><tr>
+            <th>Обозначение</th><th>Полное название</th><th>Код</th>
+            <th>Код ОКЕИ</th><th>Действия</th>
+        </tr></thead><tbody>
+            ${list.map(u => `<tr>
+                <td><strong>${esc(u.name)}</strong>${u.builtin ? ' <span class="badge">встроенная</span>' : ''}</td>
+                <td>${esc(u.full_name || '—')}</td>
+                <td><span class="mono">${esc(u.code)}</span></td>
+                <td><span class="mono">${esc(u.okei || '—')}</span></td>
+                <td><div class="row-actions">
+                    <button class="act act-edit" title="Редактировать" onclick='editUnit(${JSON.stringify(u)})'><svg class="ic"><use href="#i-edit"></use></svg></button>
+                    ${u.builtin ? '' : `<button class="act act-del" title="Удалить" onclick="deleteItem('units', ${u.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>`}
+                </div></td>
+            </tr>`).join('')}
+        </tbody></table>`;
+    }
+
+    function editUnit(u) {
+        editId = u.id;
+        document.getElementById('unitTitle').textContent = 'Изменить единицу измерения';
+        document.getElementById('u_name').value = u.name;
+        document.getElementById('u_code').value = u.code;
+        document.getElementById('u_full').value = u.full_name || '';
+        document.getElementById('u_okei').value = u.okei || '';
+        // Код — то, на что ссылаются заведённые материалы. Менять его
+        // у существующей единицы нельзя, и лучше показать это сразу,
+        // чем отказать после нажатия «Сохранить».
+        document.getElementById('u_code').readOnly = true;
+        document.getElementById('unitModal').classList.add('active');
+    }
+
+    async function saveUnit(e) {
+        e.preventDefault();
+        const data = {
+            name: document.getElementById('u_name').value.trim(),
+            code: document.getElementById('u_code').value.trim(),
+            full_name: document.getElementById('u_full').value.trim(),
+            okei: document.getElementById('u_okei').value.trim(),
+        };
+        try {
+            if (editId) await apiCall(`/units/${editId}/`, 'PATCH', data);
+            else await apiCall('/units/', 'POST', data);
+            showMessage('Единица сохранена', 'success');
+            closeModals();
+            loadData();
+        } catch (error) { showMessage('Ошибка: ' + error.message, 'error'); }
+    }
+
     function openModal() {
         editId = null;
-        if (currentTab === 'suppliers') {
+        if (currentTab === 'units') {
+            document.getElementById('unitTitle').textContent = 'Добавить единицу измерения';
+            document.getElementById('unitForm').reset();
+            document.getElementById('u_code').readOnly = false;
+            document.getElementById('unitModal').classList.add('active');
+        } else if (currentTab === 'suppliers') {
             document.getElementById('supplierTitle').textContent = 'Добавить поставщика';
             document.getElementById('supplierForm').reset();
             document.getElementById('supplierModal').classList.add('active');
@@ -252,6 +339,7 @@
     function closeModals() {
         document.getElementById('supplierModal').classList.remove('active');
         document.getElementById('warehouseModal').classList.remove('active');
+        document.getElementById('unitModal').classList.remove('active');
     }
 
     async function saveSupplier(e) {
@@ -310,6 +398,7 @@
 
     document.getElementById('supplierForm').addEventListener('submit', saveSupplier);
     document.getElementById('warehouseForm').addEventListener('submit', saveWarehouse);
+    document.getElementById('unitForm').addEventListener('submit', saveUnit);
     loadData();
 </script>
 {% endblock %}

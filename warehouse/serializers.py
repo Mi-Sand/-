@@ -10,10 +10,27 @@ from rest_framework import serializers
 
 from .models import (InboundDocument, InboundItem, Material,
                      OutboundDocument, OutboundItem, Product, Stock,
-                     StockMovement, Supplier, Warehouse)
+                     StockMovement, Supplier, Unit, Warehouse)
 
 
 # --- Справочники -----------------------------------------------------------
+class UnitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Unit
+        fields = ['id', 'code', 'name', 'full_name', 'okei', 'builtin',
+                  'sort_order']
+        # Встроенные единицы отличать нужно, а назначать — нет: иначе
+        # свою единицу можно объявить встроенной и обойти запрет на
+        # удаление.
+        read_only_fields = ['builtin']
+
+    def validate_code(self, value):
+        code = (value or '').strip()
+        if not code:
+            raise serializers.ValidationError('Код не может быть пустым.')
+        return code
+
+
 class MaterialSerializer(serializers.ModelSerializer):
     category_display = serializers.CharField(
         source='get_category_display', read_only=True)
@@ -25,6 +42,21 @@ class MaterialSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'article_number', 'color', 'description',
                   'unit', 'unit_display',
                   'category', 'category_display', 'reorder_point']
+
+    def validate_unit(self, value):
+        """Единица должна быть из справочника.
+
+        Список выбора из модели убран — единицы теперь заводят сами, —
+        и без этой проверки в поле прошла бы любая строка. Материал с
+        единицей «шт» вместо «шт.» выглядит как настоящий, а в отчётах
+        считается отдельной строкой.
+        """
+        if not Unit.objects.filter(code=value).exists():
+            known = ', '.join(Unit.objects.values_list('code', flat=True))
+            raise serializers.ValidationError(
+                f'Нет такой единицы измерения: «{value}». '
+                f'Есть: {known}. Новую заводят в справочниках.')
+        return value
 
 
 class ProductSerializer(serializers.ModelSerializer):

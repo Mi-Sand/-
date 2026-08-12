@@ -50,13 +50,52 @@ class Deletable(models.Model):
 # ===========================================================================
 #  СПРАВОЧНИКИ
 # ===========================================================================
+class Unit(models.Model):
+    """Единица измерения.
+
+    Раньше их было ровно пять и лежали они в коде: добавить рулон,
+    пару или упаковку было нельзя без правки программы. Предприятие
+    считает в том, в чём считает, и подгонять учёт под список из пяти
+    строк — значит вести его неверно: пары обуви записывали штуками, а
+    потом делили в уме.
+
+    Встроенные пять остаются на месте и удалению не подлежат: на них
+    ссылаются все заведённые материалы.
+    """
+
+    code = models.CharField('Код', max_length=10, unique=True)
+    name = models.CharField('Обозначение', max_length=20)
+    full_name = models.CharField('Полное название', max_length=50, blank=True)
+    # Код по общероссийскому классификатору. Нужен в накладных и
+    # счетах-фактурах: там единицу указывают числом, а не словом.
+    okei = models.CharField('Код ОКЕИ', max_length=4, blank=True)
+    builtin = models.BooleanField('Встроенная', default=False)
+    sort_order = models.PositiveSmallIntegerField('Порядок', default=100)
+
+    class Meta:
+        db_table = 'units'
+        ordering = ['sort_order', 'name']
+        verbose_name = 'Единица измерения'
+        verbose_name_plural = 'Единицы измерения'
+
+    def __str__(self):
+        return self.name
+
+
 class Material(models.Model):
     """Сырьё и комплектующие, используемые в производстве (фрагмент 4)."""
 
-    UNIT_CHOICES = [
-        ('pc', 'шт.'), ('kg', 'кг'),
-        ('m', 'м'), ('m2', 'кв. м'), ('l', 'л'),
+    #: Единицы, с которых система начинается. Дальше их заводят сами —
+    #: список живёт в таблице units, а этот нужен для первого заполнения
+    #: и для тех мест, где таблицы ещё нет (миграции, проверки).
+    BUILTIN_UNITS = [
+        ('pc', 'шт.', 'Штука', '796'),
+        ('kg', 'кг', 'Килограмм', '166'),
+        ('m', 'м', 'Метр', '006'),
+        ('m2', 'кв. м', 'Квадратный метр', '055'),
+        ('l', 'л', 'Литр', '112'),
     ]
+    UNIT_CHOICES = [(code, name) for code, name, _, _ in BUILTIN_UNITS]
     CATEGORY_CHOICES = [
         ('textile', 'Ткани'), ('leather', 'Кожа'),
         ('polymer', 'Полимеры'), ('fittings', 'Фурнитура'),
@@ -66,7 +105,10 @@ class Material(models.Model):
     article_number = models.CharField('Артикул', max_length=50, blank=True)
     color = models.CharField('Цвет', max_length=50, blank=True)
     description = models.TextField('Описание', blank=True)
-    unit = models.CharField('Ед. изм.', max_length=10, choices=UNIT_CHOICES)
+    # Здесь код единицы, а не выбор из списка: список живёт в таблице
+    # units и пополняется без правки программы. Проверяет допустимость
+    # кода сериализатор — там же, где остальные проверки ввода.
+    unit = models.CharField('Ед. изм.', max_length=10)
     category = models.CharField(
         'Категория', max_length=50,
         choices=CATEGORY_CHOICES, db_index=True)
@@ -82,6 +124,17 @@ class Material(models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_unit_display(self):
+        """Обозначение единицы: «кг», «пара», «рулон».
+
+        Имя оставлено прежним — так его называет Django для полей со
+        списком выбора, и все места, где оно уже вызывается, работают
+        как работали. Если единицу успели удалить, показывается сам
+        код: пустое место в накладной хуже непонятного.
+        """
+        unit = Unit.objects.filter(code=self.unit).first()
+        return unit.name if unit else self.unit
 
 
 class Product(models.Model):

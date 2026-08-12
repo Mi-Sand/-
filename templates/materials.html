@@ -187,11 +187,12 @@
             </div>
             <div class="form-group">
                 <label>Единица измерения *</label>
+                <!-- Заполняется из справочника: единицы теперь заводят
+                     сами, и вписанный сюда список рано или поздно
+                     разошёлся бы с ним. Раньше здесь стояли три из пяти
+                     единиц — кв. м и л выбрать было нельзя вовсе. -->
                 <select id="unit" required>
                     <option value="">Выберите</option>
-                    <option value="pc">шт.</option>
-                    <option value="kg">кг</option>
-                    <option value="m">м</option>
                 </select>
             </div>
             <div class="form-group">
@@ -218,7 +219,27 @@
 
 <script>
     const categoryNames = {'textile': 'Ткани', 'leather': 'Кожа', 'polymer': 'Полимеры', 'fittings': 'Фурнитура'};
-    const unitNames = {'pc': 'шт.', 'kg': 'кг', 'm': 'м', 'm2': 'кв. м', 'l': 'л'};
+    let unitNames = {};      // код -> обозначение, из справочника
+
+    async function loadUnits() {
+        let list = [];
+        try {
+            list = await apiCallAll('/units/');
+        } catch (error) {
+            // Справочник единиц открыт не всем ролям. Кладовщик,
+            // которому нельзя править номенклатуру, всё равно должен
+            // видеть список материалов — поэтому молча.
+            return;
+        }
+        unitNames = Object.fromEntries(list.map(u => [u.code, u.name]));
+        const select = document.getElementById('unit');
+        list.forEach(u => {
+            const option = document.createElement('option');
+            option.value = u.code;
+            option.textContent = u.full_name ? `${u.name} — ${u.full_name}` : u.name;
+            select.appendChild(option);
+        });
+    }
     let allMaterials = [];
     let stockByMaterial = {};
     let currentEditId = null;
@@ -264,7 +285,7 @@
                 <td>${esc(m.article_number || '—')}</td>
                 <td>${esc(m.color || '—')}</td>
                 <td><span class="badge">${categoryNames[m.category]}</span></td>
-                <td>${unitNames[m.unit]}</td>
+                <td>${esc(m.unit_display || unitNames[m.unit] || m.unit)}</td>
                 <td><strong style="color:${low ? 'var(--stop)' : 'var(--ok)'}">${stock}</strong>${low ? ' <svg class="ic"><use href="#i-alert"></use></svg>' : ''}</td>
                 <td>${m.reorder_point}</td>
                 <td><div class="row-actions">
@@ -370,6 +391,7 @@
     document.getElementById('categoryFilter').addEventListener('change', renderTable);
     document.getElementById('materialForm').addEventListener('submit', saveMaterial);
 
+    loadUnits();
     loadMaterials();
 </script>
 {% endblock %}

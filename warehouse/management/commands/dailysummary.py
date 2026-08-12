@@ -26,8 +26,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models import F, Sum
 from django.utils import timezone
 
-from warehouse.models import (InboundDocument, Material, Order,
-                              OutboundDocument, ProductionRun, Stock)
+from warehouse.models import (InboundDocument, Order, OutboundDocument,
+                              ProductionRun, Stock, Unit)
 
 #: За какой срок собирать сводку, если не сказано иное
 DEFAULT_HOURS = 24
@@ -168,6 +168,7 @@ class Command(BaseCommand):
         малой, хотя вместе их достаточно.
         """
         rows = []
+        units = dict(Unit.objects.values_list('code', 'name'))
         totals = (Stock.objects
                   .filter(material__isnull=False)
                   .values('material_id', 'material__name',
@@ -176,7 +177,9 @@ class Command(BaseCommand):
                   .filter(total__lt=F('material__reorder_point'))
                   .order_by('material__name'))
         for row in totals:
-            unit = dict(Material.UNIT_CHOICES).get(row['material__unit'], '')
+            # Единицы заводят сами, поэтому берём их из справочника, а
+            # не из списка в коде: своя единица иначе не показалась бы.
+            unit = units.get(row['material__unit'], row['material__unit'])
             rows.append(
                 f"{row['material__name']}: {row['total']:.2f} {unit} "
                 f"(минимум {row['material__reorder_point']:.2f})")
