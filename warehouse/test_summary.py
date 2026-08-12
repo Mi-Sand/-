@@ -81,14 +81,7 @@ class SummaryContentTest(SummaryTestBase):
         text = self.letter(dry_run=True)
         self.assertNotIn('ждут подтверждения', text)
 
-    def test_expiring_batches_are_listed(self):
-        supplier = self.make_inbound(expiry=date.today() + timedelta(days=5))
-        self.assertTrue(supplier)
-        text = self.letter(dry_run=True)
-        self.assertIn('Сроки годности', text)
-        self.assertIn('Кожа хромовая', text)
-
-    def make_inbound(self, expiry=None, processed=True):
+    def make_inbound(self, processed=True):
         from .models import Supplier
         supplier = Supplier.objects.create(name='ООО Поставка')
         document = InboundDocument.objects.create(
@@ -97,8 +90,7 @@ class SummaryContentTest(SummaryTestBase):
             processed=processed)
         InboundItem.objects.create(
             inbound_doc=document, material=self.material,
-            quantity=Decimal('100'), unit_price=Decimal('10'),
-            expiry_date=expiry)
+            quantity=Decimal('100'), unit_price=Decimal('10'))
         Stock.objects.create(warehouse=self.warehouse, material=self.material,
                              quantity=Decimal('100'))
         return document

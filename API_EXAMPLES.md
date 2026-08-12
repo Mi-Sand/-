@@ -164,15 +164,12 @@ curl -X POST http://127.0.0.1:8000/api/inbound-documents/ \
       {
         "material": 1,
         "quantity": 100.0,
-        "unit_price": 250.00,
-        "batch_number": "BATCH-001",
-        "expiry_date": null
+        "unit_price": 250.00
       },
       {
         "product": 2,
         "quantity": 50.0,
-        "unit_price": 2000.00,
-        "batch_number": "LOT-2026-001"
+        "unit_price": 2000.00
       }
     ]
   }'
@@ -470,7 +467,7 @@ def full_inbound_cycle(session, doc_number, warehouse_id, supplier_id, items):
 
 # Пример использования
 items = [
-    {'material': 1, 'quantity': 100, 'unit_price': 250, 'batch_number': 'BATCH-1'},
+    {'material': 1, 'quantity': 100, 'unit_price': 250},
     {'product': 2, 'quantity': 50, 'unit_price': 2000}
 ]
 full_inbound_cycle(session, 'П-2026-100', warehouse_id=1, supplier_id=1, items=items)

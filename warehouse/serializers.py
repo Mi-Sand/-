@@ -129,7 +129,7 @@ class InboundItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InboundItem
         fields = ['id', 'material', 'product', 'item_name', 'quantity',
-                  'unit_price', 'batch_number', 'expiry_date']
+                  'unit_price']
 
     def validate(self, data):
         # Ровно одно из полей: материал ИЛИ продукция

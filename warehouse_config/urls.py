@@ -51,8 +51,6 @@ api_urlpatterns = [
          name='report-reorder'),
     path('api/reports/inventory/', report_views.inventory_report,
          name='report-inventory'),
-    path('api/reports/expiry/', report_views.expiry_report,
-         name='report-expiry'),
     path('api/reports/production-cost/',
          report_views.production_cost_report, name='report-production-cost'),
     path('api/reports/stock/export/', report_views.stock_report_export,

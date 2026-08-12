@@ -14,7 +14,10 @@ from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
-from warehouse.models import *
+from warehouse.models import (InboundDocument, InboundItem, Material,
+                              Order, OrderItem, OutboundDocument,
+                              OutboundItem, Product, ProductPhoto,
+                              Stock, Supplier, Warehouse)
 
 class NPlusOneTest(TestCase):
     """Списки: три записи и сорок должны стоить одинаково."""

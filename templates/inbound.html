@@ -269,7 +269,6 @@
                         ${doc.items.map(item => `
                             <div class="doc-item">
                                 ${esc(item.item_name)}: ${item.quantity} × ${item.unit_price} руб.
-                                ${item.batch_number ? `<br><small>Партия: ${esc(item.batch_number)}</small>` : ''}
                             </div>
                         `).join('')}
                     </div>
@@ -404,10 +403,6 @@
                     <label>Цена за ед. *</label>
                     <input type="number" class="price-input" step="0.01" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
                 </div>
-                <div class="form-group">
-                    <label>Партия</label>
-                    <input type="text" class="batch-input" style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
-                </div>
                 <button type="button" onclick="this.parentElement.remove()" style="width: 100%; padding: 8px; background: var(--stop-soft); color: var(--stop); border: none; border-radius: 4px; cursor: pointer;"><svg class="ic"><use href="#i-trash"></use></svg> Удалить строку</button>
             </div>
         `;
@@ -453,7 +448,6 @@
             const itemsHtml = doc.items.map(item => `
                 <div class="doc-item">
                     ${esc(item.item_name)}: ${item.quantity} × ${item.unit_price} руб.
-                    ${item.batch_number ? `<br><small>Партия: ${esc(item.batch_number)}</small>` : ''}
                 </div>
             `).join('');
             document.getElementById('viewBody').innerHTML = `
@@ -497,7 +491,6 @@
             const itemId = row.querySelector('.material-select').value;
             const quantity = row.querySelector('.quantity-input').value;
             const unitPrice = row.querySelector('.price-input').value;
-            const batchNumber = row.querySelector('.batch-input').value;
 
             if (!itemId || !quantity || !unitPrice) {
                 showMessage('Заполните товар, количество и цену во всех строках', 'error');
@@ -507,7 +500,6 @@
             const item = {
                 quantity: parseFloat(quantity),
                 unit_price: parseFloat(unitPrice),
-                batch_number: batchNumber || ''
             };
             if (itemType === 'product') {
                 item.product = parseInt(itemId);

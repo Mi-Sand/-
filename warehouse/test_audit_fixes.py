@@ -196,7 +196,7 @@ class ReportParameterTest(TestCase):
     BAD = ['abc', '', '-5', '1e999', '99999999999999999999', '1.5', '<b>']
 
     def test_days_never_crashes(self):
-        for endpoint in ('/api/reports/movement/', '/api/reports/expiry/',
+        for endpoint in ('/api/reports/movement/',
                          '/api/reports/production-cost/'):
             for value in self.BAD:
                 with self.subTest(endpoint=endpoint, days=value):

@@ -145,10 +145,6 @@ class Command(BaseCommand):
         if low:
             blocks.append(('Остаток ниже минимума:', low))
 
-        expiring = self.expiring()
-        if expiring:
-            blocks.append(('Сроки годности на исходе:', expiring))
-
         waiting = self.waiting_orders()
         if waiting:
             blocks.append(('Заказы ждут подтверждения:', waiting))
@@ -183,25 +179,6 @@ class Command(BaseCommand):
             rows.append(
                 f"{row['material__name']}: {row['total']:.2f} {unit} "
                 f"(минимум {row['material__reorder_point']:.2f})")
-        return rows
-
-    @staticmethod
-    def expiring(days=30):
-        """Партии, у которых срок годности вот-вот кончится."""
-        try:
-            from warehouse.expiry import expiring_batches
-        except ImportError:                              # pragma: no cover
-            return []
-
-        rows = []
-        for batch in expiring_batches(days)[:10]:
-            left = batch['days_left']
-            when = ('просрочено' if batch['expired']
-                    else f'осталось {left} дн.')
-            rows.append(
-                f"{batch['item_name']}: партия {batch['batch_number']}, "
-                f"до {batch['expiry_date']:%d.%m.%Y} — {when}, "
-                f"на складе {batch['stock_remaining']:.2f}")
         return rows
 
     @staticmethod

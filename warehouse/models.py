@@ -331,6 +331,10 @@ class InboundItem(models.Model):
         'Цена за единицу', max_digits=10, decimal_places=2,
         validators=[MinValueValidator(0)])
     batch_number = models.CharField('Партия', max_length=50, blank=True)
+    # Срок годности и номер партии больше не запрашиваются: предприятие
+    # выпускает спортивный инвентарь, а не продукты, и в каждом
+    # документе оставалось пустое поле. Поля сохранены, чтобы не
+    # потерять то, что успели ввести раньше.
     expiry_date = models.DateField('Срок годности', null=True, blank=True)
 
     class Meta:
