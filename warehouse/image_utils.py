@@ -72,6 +72,26 @@ def compress_image(django_file):
         return None
 
 
+def just_uploaded(field):
+    """Похоже ли поле на только что загруженный файл.
+
+    Обрабатывать нужно только свежие загрузки: у сохранённого файла
+    содержимого под рукой нет, а повторное сжатие роняло бы качество
+    при каждой правке товара.
+
+    Обращение к `.file` открывает файл на диске, и если файла там нет —
+    база восстановлена без папки media, снимок удалили руками — оно
+    заканчивается ошибкой. Молча упасть при сохранении товара из-за
+    пропавшей картинки нельзя: товар важнее картинки.
+    """
+    try:
+        source = getattr(field, 'file', None)
+    except (OSError, ValueError):
+        return False
+    return (isinstance(source, InMemoryUploadedFile)
+            or hasattr(source, 'temporary_file_path'))
+
+
 @receiver(pre_save, sender=ProductPhoto)
 def compress_extra_photo(sender, instance, **kwargs):
     """Сжать дополнительную фотографию — так же, как обложку.
@@ -80,11 +100,7 @@ def compress_extra_photo(sender, instance, **kwargs):
     мегабайта на кадр, восемь кадров на позицию. Витрина открывается
     минуту, а место на диске кончается незаметно.
     """
-    if not instance.image:
-        return
-    source = getattr(instance.image, 'file', None)
-    if not isinstance(source, (InMemoryUploadedFile,)) and \
-            not hasattr(source, 'temporary_file_path'):
+    if not instance.image or not just_uploaded(instance.image):
         return
     compressed = compress_image(instance.image)
     if compressed is not None:
@@ -97,12 +113,7 @@ def compress_product_photo(sender, instance, **kwargs):
     if not instance.photo:
         return
 
-    # Обрабатываем только свежезагруженные файлы. У уже сохранённых в базе
-    # атрибута `file` с исходным содержимым нет, и повторно сжимать их не
-    # нужно — иначе качество будет падать при каждом редактировании.
-    photo_file = getattr(instance.photo, 'file', None)
-    if not isinstance(photo_file, (InMemoryUploadedFile,)) and \
-            not hasattr(photo_file, 'temporary_file_path'):
+    if not just_uploaded(instance.photo):
         return
 
     compressed = compress_image(instance.photo)

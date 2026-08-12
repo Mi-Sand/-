@@ -127,6 +127,16 @@
         function labelTableCells(root) {
             const scope = root && root.querySelectorAll ? root : document;
             scope.querySelectorAll('table').forEach(table => {
+                // Обёртка для прокрутки вбок. Ставится здесь, а не в
+                // разметке каждой страницы: таблицы собираются скриптами
+                // в десятке разделов, и вписывать обёртку руками в
+                // каждую — значит однажды забыть.
+                if (!table.parentElement.classList.contains('table-scroll')) {
+                    const box = document.createElement('div');
+                    box.className = 'table-scroll';
+                    table.parentElement.insertBefore(box, table);
+                    box.appendChild(table);
+                }
                 const heads = Array.from(table.querySelectorAll('thead th'))
                     .map(th => th.textContent.trim());
                 if (!heads.length) return;
@@ -334,6 +344,10 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            /* Зазор обязателен: заголовок раздела обрезается многоточием,
+               и без него обрезанное слово упиралось прямо в имя
+               сотрудника — читалось как одно длинное слово. */
+            gap: 14px;
             position: sticky; top: 0; z-index: 40;
         }
         .topbar h1 {
@@ -341,10 +355,24 @@
             font-weight: 600;
             letter-spacing: -.015em;
             display: flex; align-items: center; gap: 9px;
+            /* Длинный заголовок раздела вместе с длинным именем
+               сотрудника выталкивал кнопку выхода за край страницы —
+               появлялась прокрутка вбок на всю страницу. Оба теперь
+               умеют сжиматься: заголовок обрезается многоточием, имя
+               тоже, а кнопка выхода остаётся на месте. */
+            min-width: 0; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap;
         }
-        .topbar h1 .ic { color: var(--ink-3); }
-        .whoami { display: flex; align-items: center; gap: 14px; font-size: 13px; }
-        .whoami .who { color: var(--ink-2); }
+        .topbar h1 .ic { color: var(--ink-3); flex: 0 0 auto; }
+        .whoami {
+            display: flex; align-items: center; gap: 14px; font-size: 13px;
+            min-width: 0; flex-shrink: 0;
+        }
+        .whoami .who {
+            color: var(--ink-2);
+            max-width: 26vw; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap;
+        }
         .whoami .exit { display: flex; margin: 0; }
         .whoami .out {
             display: inline-flex; align-items: center; gap: 6px;
@@ -362,11 +390,24 @@
            выхода вместе не помещаются в шапку и выталкивают страницу
            вбок. Имя убираем — оно и так известно тому, кто вошёл,
            а кнопка выхода нужнее. */
-        @media (max-width: 360px) {
+        /* На узком экране имя сотрудника уступает место названию
+           раздела: имя и так известно тому, кто вошёл, а обрезанное
+           «Инвентариза…» читается плохо. Порог поднят с 360 до 460:
+           на 390 точках — обычная ширина телефона — название раздела
+           не помещалось. */
+        @media (max-width: 460px) {
             .whoami .who { display: none; }
         }
 
-        .sheet { padding: 22px 26px 40px; flex: 1; }
+        .sheet { padding: 22px 26px 40px; flex: 1; min-width: 0; }
+
+        /* Широкая таблица не должна растягивать страницу.
+           Столбцов на некоторых разделах десяток, и на узком экране
+           ноутбука таблица вылезала за край: появлялась прокрутка всей
+           страницы вбок, вместе с шапкой и меню. Прокручиваться должна
+           таблица, а не страница, — обёртку вокруг таблиц ставит
+           labelTableCells, ей же размечающая ячейки. */
+        .table-scroll { overflow-x: auto; max-width: 100%; }
 
         /* ---------- Иконки ---------- */
         .ic    { width: 18px; height: 18px; display: inline-block; vertical-align: -3.5px; }

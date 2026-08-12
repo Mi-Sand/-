@@ -4,8 +4,21 @@
 
 {% block extra_css %}
     table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-    table th { background: var(--surface-alt); padding: 12px; text-align: left; font-weight: 600; border-bottom: 2px solid var(--line-strong); }
-    table td { padding: 12px; border-bottom: 1px solid var(--line); }
+    /* Столбцов здесь больше всего в системе, а после появления кнопки
+       этикетки последний столбец перестал помещаться на экране
+       ноутбука. Отступы по бокам подобраны так, чтобы таблица влезала
+       целиком: прокручивать её вбок ради кнопки «Удалить» неудобно.
+
+       Записано с той же точностью, что и в общем наборе стилей
+       (`table tbody td`, а не `table td`): иначе общее правило, идущее
+       позже, перебивает это, и отступы остаются прежними. Такая
+       осечка здесь уже случалась. */
+    @media (min-width: 721px) {
+        table thead th { padding: 12px 8px; }
+        table tbody td { padding: 12px 8px; }
+    }
+    table th { background: var(--surface-alt); text-align: left; font-weight: 600; border-bottom: 2px solid var(--line-strong); }
+    table td { border-bottom: 1px solid var(--line); }
     table tr:hover { background: var(--surface-alt); }
     .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
         background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }

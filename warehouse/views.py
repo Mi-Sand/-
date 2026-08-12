@@ -223,7 +223,11 @@ class UnitViewSet(viewsets.ModelViewSet):
 
 class ProductViewSet(TextSearchMixin, CatalogDeleteGuardMixin,
                      viewsets.ModelViewSet):
-    queryset = Product.objects.all()
+    # Фотографии забираются одним запросом на весь список. Без этого
+    # каждая позиция стоила бы отдельного обращения к базе: при полусотне
+    # товаров вместо десятка запросов получалось полсотни, и страница
+    # номенклатуры открывалась заметно дольше.
+    queryset = Product.objects.prefetch_related('photos')
     serializer_class = ProductSerializer
     permission_classes = [CanManageCatalog]
     filterset_fields = ['category', 'size', 'color', 'status']
@@ -308,9 +312,13 @@ class SupplierViewSet(TextSearchMixin, viewsets.ModelViewSet):
 
 class InboundDocumentViewSet(DocumentSearchMixin, viewsets.ModelViewSet):
     # select_related — один запрос с JOIN вместо N+1 (фрагмент 17)
+    # Строки забираются вместе с материалом и продукцией: в ответе у
+    # каждой строки стоит название позиции, и без этого база
+    # опрашивалась по разу на строку. На сорока документах выходило
+    # сорок пять запросов вместо восьми.
     queryset = (InboundDocument.objects
                 .select_related('supplier', 'warehouse', 'created_by')
-                .prefetch_related('items'))
+                .prefetch_related('items__material', 'items__product'))
     serializer_class = InboundDocumentSerializer
     permission_classes = [CanEditDocuments]
     filterset_fields = ['warehouse', 'supplier', 'processed']
@@ -374,9 +382,10 @@ class InboundDocumentViewSet(DocumentSearchMixin, viewsets.ModelViewSet):
 
 
 class OutboundDocumentViewSet(DocumentSearchMixin, viewsets.ModelViewSet):
+    # То же, что у прихода: названия позиций берутся из строк.
     queryset = (OutboundDocument.objects
                 .select_related('warehouse', 'created_by')
-                .prefetch_related('items'))
+                .prefetch_related('items__material', 'items__product'))
     serializer_class = OutboundDocumentSerializer
     permission_classes = [CanEditDocuments]
     filterset_fields = ['warehouse', 'purpose', 'processed']

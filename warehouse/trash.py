@@ -14,6 +14,7 @@
 сначала сторно.
 """
 from django.conf import settings
+from django.db.models import Count
 from django.utils import timezone
 
 from .models import InboundDocument, OutboundDocument
@@ -69,9 +70,13 @@ def items(kind=None):
     for key, (model, title) in KINDS.items():
         if kind and kind != key:
             continue
+        # Число строк считается сразу по всем документам одним
+        # запросом: отдельный подсчёт на каждый документ означал бы
+        # столько обращений к базе, сколько документов в корзине.
         found = (model.all_objects
                  .filter(deleted_at__isnull=False)
                  .select_related('warehouse', 'deleted_by')
+                 .annotate(line_count=Count('items'))
                  .order_by('-deleted_at'))
         for document in found:
             rows.append({
@@ -85,7 +90,7 @@ def items(kind=None):
                 'deleted_by': (document.deleted_by.get_full_name()
                                or document.deleted_by.username)
                               if document.deleted_by else '',
-                'lines': document.items.count(),
+                'lines': document.line_count,
                 'days_left': days_left(document),
             })
     rows.sort(key=lambda row: row['deleted_at'], reverse=True)
