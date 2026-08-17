@@ -42,7 +42,7 @@
     <button class="btn btn-primary" onclick="openModal()">+ Добавить сотрудника</button>
 </div>
 
-<div id="area"><div class="loading">Загрузка...</div></div>
+<div id="area"><div class="loading">Загрузка…</div></div>
 
 <div class="modal" id="userModal">
     <div class="modal-content">
@@ -100,7 +100,7 @@
 
     async function loadUsers() {
         const area = document.getElementById('area');
-        area.innerHTML = '<div class="loading">Загрузка...</div>';
+        area.innerHTML = '<div class="loading">Загрузка…</div>';
         try {
             const list = await apiCallAll('/users/');
             if (list.length === 0) { area.innerHTML = '<div class="empty">Сотрудников пока нет</div>'; return; }

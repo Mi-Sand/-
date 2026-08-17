@@ -13,7 +13,8 @@ from rest_framework.response import Response
 from accounts.permissions import CanEditDocuments, CanProcessOrders
 
 from .models import Order, OrderItem
-from .order_services import (cancel_order, confirm_order, ship_order)
+from .order_services import (cancel_order, confirm_order, create_order,
+                             ship_order)
 from .services import InsufficientStockError
 
 
@@ -51,6 +52,44 @@ class OrderSerializer(serializers.ModelSerializer):
 
 class OrderViewSet(viewsets.ModelViewSet):
     """Заказы покупателей. Создаются через витрину, обрабатываются здесь."""
+
+    def create(self, request, *args, **kwargs):
+        """Завести заказ из закрытой части — например, по телефону.
+
+        Раньше сюда попадала обычная запись модели: заказ сохранялся
+        без номера и без единой позиции, потому что номер и строки
+        назначаются не здесь, а при оформлении. В списке появлялась
+        карточка «Итого: 0», которую нельзя ни отгрузить, ни понять.
+
+        Теперь заказ заводится тем же путём, что и с витрины: с
+        проверкой наличия, резервированием товара и присвоением номера.
+        """
+        data = request.data
+        items = data.get('items')
+        if not isinstance(items, list) or not items:
+            return Response(
+                {'error': 'В заказе нет ни одной позиции. Укажите items: '
+                          '[{"product": 1, "quantity": 2}].'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            order = create_order(
+                customer_name=data.get('customer_name', ''),
+                customer_phone=data.get('customer_phone', ''),
+                customer_email=data.get('customer_email', ''),
+                address=data.get('address', ''),
+                comment=data.get('comment', ''),
+                items=items,
+                source_ip=None)
+        except InsufficientStockError as error:
+            return Response({'error': str(error)},
+                            status=status.HTTP_409_CONFLICT)
+        except (ValueError, TypeError, KeyError) as error:
+            return Response({'error': str(error)},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(self.get_serializer(order).data,
+                        status=status.HTTP_201_CREATED)
 
     queryset = (Order.objects
                 .prefetch_related('items__product')

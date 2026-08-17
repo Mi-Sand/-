@@ -34,7 +34,7 @@
     <form id="produceForm">
         <div class="form-group">
             <label>Что производим (продукция) *</label>
-            <select id="product" required><option value="">Загрузка...</option></select>
+            <select id="product" required><option value="">Загрузка…</option></select>
         </div>
         <div class="form-group">
             <label>Количество продукции *</label>
@@ -42,13 +42,13 @@
         </div>
         <div class="form-group">
             <label>Склад для готовой продукции *</label>
-            <select id="product_warehouse" required><option value="">Загрузка...</option></select>
+            <select id="product_warehouse" required><option value="">Загрузка…</option></select>
         </div>
 
         <div class="section-title">Материалы, которые ушли на производство</div>
         <div class="form-group">
             <label>Склад, откуда списываем материалы *</label>
-            <select id="material_warehouse" required><option value="">Загрузка...</option></select>
+            <select id="material_warehouse" required><option value="">Загрузка…</option></select>
         </div>
 
         <div id="materialsList"></div>
@@ -75,10 +75,10 @@
             warehousesCache = wh;
 
             document.getElementById('product').innerHTML =
-                '<option value="">Выберите продукцию...</option>' +
+                '<option value="">Выберите продукцию…</option>' +
                 productsCache.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.article_number)})</option>`).join('');
 
-            const whOpts = '<option value="">Выберите склад...</option>' +
+            const whOpts = '<option value="">Выберите склад…</option>' +
                 warehousesCache.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
             document.getElementById('product_warehouse').innerHTML = whOpts;
             document.getElementById('material_warehouse').innerHTML = whOpts;
@@ -96,7 +96,7 @@
             <div class="form-group">
                 <label>Материал</label>
                 <select class="mat-select">
-                    <option value="">Выберите...</option>
+                    <option value="">Выберите…</option>
                     ${materialsCache.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}
                 </select>
             </div>

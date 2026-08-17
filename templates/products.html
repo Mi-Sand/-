@@ -236,8 +236,8 @@
                 <td>${esc(p.size)}</td>
                 <td>${esc(p.color)}</td>
                 <td><strong style="color:${(stockByProduct[p.id]||0) > 0 ? 'var(--ok)' : 'var(--ink-3)'}">${stockByProduct[p.id] || 0}</strong> шт.</td>
-                <td>${p.cost}</td>
-                <td>${p.selling_price}</td>
+                <td>${money(p.cost, '')}</td>
+                <td>${money(p.selling_price, '')}</td>
                 <td><span class="badge ${p.status === 'archived' ? 'badge-archived' : ''}">${statusNames[p.status] || p.status}</span></td>
                 <td><div class="row-actions">
                     <button class="act" title="Этикетка со штрихкодом" onclick="printLabel(${p.id})"><svg class="ic"><use href="#i-print"></use></svg></button>

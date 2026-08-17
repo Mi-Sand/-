@@ -52,7 +52,7 @@
     {% if user_perms.documents %}<button class="btn btn-primary" onclick="openCreateModal()">+ Новая инвентаризация</button>{% endif %}
 </div>
 
-<div id="loading" class="loading">Загрузка...</div>
+<div id="loading" class="loading">Загрузка…</div>
 <div id="content" style="display:none;"><div class="inv-list" id="invList"></div></div>
 
 <!-- Создание -->
@@ -66,7 +66,7 @@
             </div>
             <div class="form-group">
                 <label>Склад *</label>
-                <select id="warehouse" required><option value="">Загрузка...</option></select>
+                <select id="warehouse" required><option value="">Загрузка…</option></select>
             </div>
             <div class="form-actions">
                 <button type="submit" class="btn-primary">Создать</button>
@@ -112,7 +112,7 @@
                         ${inv.status !== 'completed' ? `<button class="btn-sm btn-red" onclick="deleteInv(${inv.id})"><svg class="ic"><use href="#i-trash"></use></svg></button>` : ''}
                     </div>
                 </div>`).join('');
-            document.getElementById('invList').innerHTML = html || '<div class="empty">Инвентаризаций пока нет. Создайте первую!</div>';
+            document.getElementById('invList').innerHTML = html || '<div class="empty">Инвентаризаций пока нет. Создайте первую.</div>';
             document.getElementById('loading').style.display = 'none';
             document.getElementById('content').style.display = 'block';
         } catch (error) {
@@ -125,7 +125,7 @@
         try {
             const wh = await apiCallAll('/warehouses/');
             document.getElementById('warehouse').innerHTML =
-                '<option value="">Выберите склад...</option>' +
+                '<option value="">Выберите склад…</option>' +
                 wh.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
             document.getElementById('createForm').reset();
             document.getElementById('createModal').classList.add('active');
@@ -170,11 +170,11 @@
                 </tr></thead><tbody>
                     ${items.map(it => `<tr>
                         <td>${esc(it.item_name)}</td>
-                        <td>${it.system_quantity}</td>
+                        <td>${qty(it.system_quantity)}</td>
                         <td>${readOnly
-                            ? it.actual_quantity
+                            ? qty(it.actual_quantity)
                             : `<input type="number" step="0.01" data-item="${it.id}" value="${it.actual_quantity ?? it.system_quantity}">`}</td>
-                        ${readOnly ? `<td class="${parseFloat(it.difference) < 0 ? 'diff-neg' : parseFloat(it.difference) > 0 ? 'diff-pos' : ''}">${it.difference}</td>` : ''}
+                        ${readOnly ? `<td class="${parseFloat(it.difference) < 0 ? 'diff-neg' : parseFloat(it.difference) > 0 ? 'diff-pos' : ''}">${qty(it.difference)}</td>` : ''}
                     </tr>`).join('')}
                 </tbody></table>`;
             // Спрятать кнопку сохранения, если только просмотр

@@ -90,7 +90,7 @@
             Товар будет списан со склада, создастся расходный документ.</p>
         <div class="form-group">
             <label>Склад отгрузки *</label>
-            <select id="shipWarehouse"><option value="">Загрузка...</option></select>
+            <select id="shipWarehouse"><option value="">Загрузка…</option></select>
         </div>
         <div class="form-actions">
             <button class="btn-primary" onclick="doShip()">Отгрузить</button>
@@ -254,7 +254,7 @@
         try {
             const wh = await apiCallAll('/warehouses/');
             document.getElementById('shipWarehouse').innerHTML =
-                '<option value="">Выберите склад...</option>' +
+                '<option value="">Выберите склад…</option>' +
                 wh.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
         } catch (e) {}
         document.getElementById('shipModal').classList.add('active');

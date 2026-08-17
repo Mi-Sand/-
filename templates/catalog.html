@@ -76,7 +76,7 @@
         <svg class="ic-sm"><use href="#i-plus"></use></svg><span id="addLabel">Поставщик</span></button>
 </div>
 
-<div id="area"><div class="loading">Загрузка...</div></div>
+<div id="area"><div class="loading">Загрузка…</div></div>
 
 <!-- Модальное окно поставщика -->
 <div class="modal" id="supplierModal">
@@ -166,7 +166,7 @@
 
     async function loadData() {
         const area = document.getElementById('area');
-        area.innerHTML = '<div class="loading">Загрузка...</div>';
+        area.innerHTML = '<div class="loading">Загрузка…</div>';
         try {
             if (currentTab === 'suppliers') await loadSuppliers(area);
             else if (currentTab === 'units') await loadUnits(area);
@@ -178,7 +178,7 @@
 
     async function loadSuppliers(area) {
         const list = await apiCallAll('/suppliers/');
-        if (list.length === 0) { area.innerHTML = '<div class="empty">Поставщиков пока нет. Добавьте первого!</div>'; return; }
+        if (list.length === 0) { area.innerHTML = '<div class="empty">Поставщиков пока нет. Добавьте первого.</div>'; return; }
         area.innerHTML = `<table><thead><tr>
             <th>Наименование</th><th>ИНН</th><th>Контакт</th><th>Телефон</th><th>E-mail</th><th>Действия</th>
         </tr></thead><tbody>
@@ -199,7 +199,7 @@
 
     async function loadWarehouses(area) {
         const list = await apiCallAll('/warehouses/');
-        if (list.length === 0) { area.innerHTML = '<div class="empty">Складов пока нет. Добавьте первый!</div>'; return; }
+        if (list.length === 0) { area.innerHTML = '<div class="empty">Складов пока нет. Добавьте первый.</div>'; return; }
         area.innerHTML = `<table><thead><tr>
             <th>Наименование</th><th>Тип</th><th>Расположение</th><th>Вместимость</th><th>Действия</th>
         </tr></thead><tbody>

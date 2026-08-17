@@ -60,7 +60,7 @@
     {% if user_perms.documents %}<button class="btn btn-primary" onclick="openCreateModal()">+ Новый расход</button>{% endif %}
 </div>
 
-<div id="loading" class="loading">Загрузка документов...</div>
+<div id="loading" class="loading">Загрузка документов…</div>
 <div id="content" style="display: none;"><div class="doc-list" id="docList"></div></div>
 
 <div class="modal" id="createModal">
@@ -77,7 +77,7 @@
             </div>
             <div class="form-group">
                 <label>Склад (откуда списываем) *</label>
-                <select id="warehouse" required><option value="">Загрузка...</option></select>
+                <select id="warehouse" required><option value="">Загрузка…</option></select>
             </div>
             <div class="form-group">
                 <label>Назначение *</label>
@@ -145,10 +145,10 @@
                         <svg class="ic"><use href="#i-calendar"></use></svg> ${ruDate(doc.doc_date)}<br>
                         <svg class="ic"><use href="#i-box"></use></svg> ${esc(doc.warehouse_name)}<br>
                         <svg class="ic"><use href="#i-target"></use></svg> ${esc(doc.purpose_display)}<br>
-                        <svg class="ic"><use href="#i-ruble"></use></svg> Сумма: ${doc.total_sum} руб.
+                        <svg class="ic"><use href="#i-ruble"></use></svg> Сумма: ${money(doc.total_sum)}
                     </div>
                     <div class="doc-items">
-                        ${doc.items.map(item => `<div class="doc-item">${esc(item.item_name)}: ${item.quantity}</div>`).join('')}
+                        ${doc.items.map(item => `<div class="doc-item">${esc(item.item_name)}: ${qty(item.quantity)}</div>`).join('')}
                     </div>
                     <div class="doc-actions">
                         ${!doc.processed
@@ -210,13 +210,13 @@
         try {
             const doc = await apiCall(`/outbound-documents/${id}/`);
             document.getElementById('viewTitle').textContent = `Расходный документ ${esc(doc.doc_number)}`;
-            const itemsHtml = doc.items.map(item => `<div class="doc-item">${esc(item.item_name)}: ${item.quantity}</div>`).join('');
+            const itemsHtml = doc.items.map(item => `<div class="doc-item">${esc(item.item_name)}: ${qty(item.quantity)}</div>`).join('');
             document.getElementById('viewBody').innerHTML = `
                 <p><strong>Дата:</strong> ${ruDate(doc.doc_date)}</p>
                 <p><strong>Склад:</strong> ${esc(doc.warehouse_name)}</p>
                 <p><strong>Назначение:</strong> ${esc(doc.purpose_display)}</p>
                 <p><strong>Статус:</strong> ${doc.processed ? 'Проведён' : '<svg class="ic"><use href="#i-clock"></use></svg> Не проведён'}</p>
-                <p><strong>Сумма:</strong> ${doc.total_sum} руб.</p>
+                <p><strong>Сумма:</strong> ${money(doc.total_sum)}</p>
                 <div class="doc-items" style="margin-top: 10px;">${itemsHtml}</div>`;
             document.getElementById('viewModal').classList.add('active');
         } catch (error) {
@@ -237,7 +237,7 @@
         try {
             const warehouses = await apiCallAll('/warehouses/');
             document.getElementById('warehouse').innerHTML =
-                '<option value="">Выберите склад...</option>' +
+                '<option value="">Выберите склад…</option>' +
                 warehouses.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('');
             document.getElementById('doc_date').valueAsDate = new Date();
             document.getElementById('itemsList').innerHTML = '';
@@ -255,7 +255,7 @@
         row.innerHTML = `
             <div class="form-group">
                 <label>Материал *</label>
-                <select class="material-select" required><option value="">Загрузка...</option></select>
+                <select class="material-select" required><option value="">Загрузка…</option></select>
             </div>
             <div class="form-group">
                 <label>Количество *</label>
@@ -266,7 +266,7 @@
         document.getElementById('itemsList').appendChild(row);
         const select = row.querySelector('.material-select');
         apiCallAll('/materials/').then(data => {
-            select.innerHTML = '<option value="">Выберите материал...</option>' +
+            select.innerHTML = '<option value="">Выберите материал…</option>' +
                 data.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
         });
     }

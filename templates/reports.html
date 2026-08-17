@@ -190,7 +190,7 @@
             const year = new Date().getFullYear();
             c.innerHTML = `
                 <label>Покупатель:</label>
-                <select id="counterparty"><option value="">Загрузка...</option></select>
+                <select id="counterparty"><option value="">Загрузка…</option></select>
                 <label>с</label>
                 <input type="date" id="dateFrom" value="${year}-01-01">
                 <label>по</label>
@@ -282,7 +282,7 @@
             return;
         }
 
-        area.innerHTML = '<div class="loading">Загрузка отчёта...</div>';
+        area.innerHTML = '<div class="loading">Загрузка отчёта…</div>';
         try {
             if (currentTab === 'stock') await loadStock(area);
             else if (currentTab === 'movement') await loadMovement(area);

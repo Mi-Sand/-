@@ -101,6 +101,36 @@
             return `${parts[2]}.${parts[1]}.${parts[0]}`;
         }
 
+        // Деньги в привычном виде: 250 000,00 руб.
+        //
+        // База отдаёт число строкой вида «250000.00», и оно так и
+        // попадало в карточки документов: разряды не отделены, копейки
+        // всегда две, даже когда их нет. Витрина при этом уже
+        // показывала цены по-человечески — получалось, что одна и та же
+        // сумма выглядит в системе и в магазине по-разному.
+        function money(value, currency = 'руб.') {
+            const number = Number(value);
+            if (!isFinite(number)) return '—';
+            // Копейки показываем, только если они есть: «250 000 руб.»
+            // читается быстрее, чем «250 000,00 руб.», а в документах
+            // с копейками они не теряются.
+            const kopecks = Math.abs(number % 1) > 0.0049;
+            const text = number.toLocaleString('ru-RU', {
+                minimumFractionDigits: kopecks ? 2 : 0,
+                maximumFractionDigits: 2,
+            });
+            return currency ? `${text} ${currency}` : text;
+        }
+
+        // Количество: разряды отделены, дробная часть — только если есть.
+        function qty(value) {
+            const number = Number(value);
+            if (!isFinite(number)) return '—';
+            return number.toLocaleString('ru-RU', {
+                minimumFractionDigits: 0, maximumFractionDigits: 3,
+            });
+        }
+
         // Иконка: короткая запись вместо длинного тега svg/use
         function icon(name, cls) {
             return `<svg class="ic ${cls || ''}"><use href="#i-${name}"></use></svg>`;
@@ -1166,7 +1196,7 @@
             document.getElementById('cwContacts').classList.remove('show');
             document.getElementById('cwChat').classList.add('show');
             document.getElementById('cwBack').style.display = 'none';
-            document.getElementById('cwMessages').innerHTML = '<div class="cw-empty">Загрузка...</div>';
+            document.getElementById('cwMessages').innerHTML = '<div class="cw-empty">Загрузка…</div>';
             cwLoadMessages(true);
         }
 
@@ -1177,7 +1207,7 @@
             document.getElementById('cwChat').classList.remove('show');
             const box = document.getElementById('cwContacts');
             box.classList.add('show');
-            box.innerHTML = '<div class="cw-empty">Загрузка...</div>';
+            box.innerHTML = '<div class="cw-empty">Загрузка…</div>';
             try {
                 const contacts = await apiCall('/chat/contacts/');
                 if (contacts.length === 0) { box.innerHTML = '<div class="cw-empty">Нет других сотрудников</div>'; return; }
@@ -1201,7 +1231,7 @@
             document.getElementById('cwChat').classList.add('show');
             document.getElementById('cwBack').style.display = 'block';
             document.querySelector('.cw-title').textContent = name;
-            document.getElementById('cwMessages').innerHTML = '<div class="cw-empty">Загрузка...</div>';
+            document.getElementById('cwMessages').innerHTML = '<div class="cw-empty">Загрузка…</div>';
             cwLoadMessages(true);
         }
 

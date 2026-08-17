@@ -251,13 +251,21 @@
             </linearGradient>
         </defs>`;
 
-        // Сетка и подписи значений
+        // Сетка и подписи значений.
+        //
+        // Подписи округляются до целых, когда счёт идёт на десятки и
+        // больше: треть от двадцати — это 6,667, и такая подпись на оси
+        // склада только мешает. Дробную часть оставляем лишь у совсем
+        // мелких значений, где без неё все три подписи станут нулями.
+        const round = value => (top >= 12
+            ? Math.round(value)
+            : Math.round(value * 10) / 10);
         for (let i = 0; i <= 3; i++) {
             const value = top * i / 3;
             const y = yOf(value);
             svg += `<line class="ch-grid" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"/>`;
             svg += `<text class="ch-label" x="${padL - 7}" y="${y + 3}" text-anchor="end">`
-                 + `${value.toLocaleString('ru-RU')}</text>`;
+                 + `${round(value).toLocaleString('ru-RU')}</text>`;
         }
 
         // Заливки, затем линии поверх
@@ -363,9 +371,9 @@
                 <div class="line-item">
                     <div>
                         <div class="who">${esc(item.name)}</div>
-                        <div class="meta">минимум ${item.reorder_point} ${esc(item.unit)}</div>
+                        <div class="meta">минимум ${qty(item.reorder_point)} ${esc(item.unit)}</div>
                     </div>
-                    <div class="val" style="color: var(--stop);">${item.current} ${esc(item.unit)}</div>
+                    <div class="val" style="color: var(--stop);">${qty(item.current)} ${esc(item.unit)}</div>
                 </div>`).join('');
             document.getElementById('low-stock-items').innerHTML =
                 low || '<div class="empty">Все материалы в норме. Закупка не требуется.</div>';
@@ -380,7 +388,7 @@
                         </div>
                     </div>
                     <div class="val" style="color: ${mv.movement_type === 'out' ? 'var(--stop)' : 'var(--ok)'};">
-                        ${mv.movement_type === 'out' ? '−' : '+'}${mv.quantity}
+                        ${mv.movement_type === 'out' ? '−' : '+'}${qty(mv.quantity)}
                     </div>
                 </div>`).join('');
             document.getElementById('recent-movements').innerHTML =

@@ -167,7 +167,7 @@
     {% if user_perms.documents %}<button class="btn btn-primary" onclick="openCreateModal()">+ Новый приход</button>{% endif %}
 </div>
 
-<div id="loading" class="loading">Загрузка документов...</div>
+<div id="loading" class="loading">Загрузка документов…</div>
 
 <div id="content" style="display: none;">
     <div class="doc-list" id="docList">
@@ -190,13 +190,13 @@
             <div class="form-group">
                 <label>Поставщик *</label>
                 <select id="supplier" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
-                    <option value="">Загрузка...</option>
+                    <option value="">Загрузка…</option>
                 </select>
             </div>
             <div class="form-group">
                 <label>Склад *</label>
                 <select id="warehouse" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
-                    <option value="">Загрузка...</option>
+                    <option value="">Загрузка…</option>
                 </select>
             </div>
             
@@ -263,12 +263,12 @@
                         <svg class="ic"><use href="#i-calendar"></use></svg> ${ruDate(doc.doc_date)}<br>
                         <svg class="ic"><use href="#i-factory"></use></svg> ${esc(doc.supplier_name)}<br>
                         <svg class="ic"><use href="#i-box"></use></svg> ${esc(doc.warehouse_name)}<br>
-                        <svg class="ic"><use href="#i-ruble"></use></svg> Сумма: ${doc.total_sum} руб.
+                        <svg class="ic"><use href="#i-ruble"></use></svg> Сумма: ${money(doc.total_sum)}
                     </div>
                     <div class="doc-items">
                         ${doc.items.map(item => `
                             <div class="doc-item">
-                                ${esc(item.item_name)}: ${item.quantity} × ${item.unit_price} руб.
+                                ${esc(item.item_name)}: ${qty(item.quantity)} × ${money(item.unit_price)}
                             </div>
                         `).join('')}
                     </div>
@@ -392,7 +392,7 @@
                 <div class="form-group">
                     <label>Товар *</label>
                     <select class="material-select" required style="width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 4px;">
-                        <option value="">Загрузка...</option>
+                        <option value="">Загрузка…</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -415,7 +415,7 @@
         function loadItems() {
             const type = typeSelect.value;
             const endpoint = type === 'product' ? '/products/' : '/materials/';
-            itemSelect.innerHTML = '<option value="">Загрузка...</option>';
+            itemSelect.innerHTML = '<option value="">Загрузка…</option>';
             apiCallAll(endpoint).then(data => {
                 const label = type === 'product' ? 'продукцию' : 'материал';
                 itemSelect.innerHTML = `<option value="">Выберите ${label}...</option>` +
@@ -447,7 +447,7 @@
                 `Приходный документ ${esc(doc.doc_number)}`;
             const itemsHtml = doc.items.map(item => `
                 <div class="doc-item">
-                    ${esc(item.item_name)}: ${item.quantity} × ${item.unit_price} руб.
+                    ${esc(item.item_name)}: ${qty(item.quantity)} × ${money(item.unit_price)}
                 </div>
             `).join('');
             document.getElementById('viewBody').innerHTML = `
@@ -455,7 +455,7 @@
                 <p><strong>Поставщик:</strong> ${esc(doc.supplier_name)}</p>
                 <p><strong>Склад:</strong> ${esc(doc.warehouse_name)}</p>
                 <p><strong>Статус:</strong> ${doc.processed ? 'Проведён' : '<svg class="ic"><use href="#i-clock"></use></svg> Не проведён'}</p>
-                <p><strong>Сумма:</strong> ${doc.total_sum} руб.</p>
+                <p><strong>Сумма:</strong> ${money(doc.total_sum)}</p>
                 <div class="doc-items" style="margin-top: 10px;">${itemsHtml}</div>
             `;
             document.getElementById('viewModal').classList.add('active');

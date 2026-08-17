@@ -71,7 +71,7 @@
         el.classList.add('active');
         document.getElementById('chatHeader').textContent =
             id ? '💬 ' + title : '📢 Общий чат';
-        document.getElementById('messages').innerHTML = '<div class="chat-empty">Загрузка...</div>';
+        document.getElementById('messages').innerHTML = '<div class="chat-empty">Загрузка…</div>';
         loadMessages(true);
     }
 
@@ -87,7 +87,7 @@
             const box = document.getElementById('messages');
             if (reset) box.innerHTML = '';
             if (reset && msgs.length === 0) {
-                box.innerHTML = '<div class="chat-empty">Пока нет сообщений. Начните переписку!</div>';
+                box.innerHTML = '<div class="chat-empty">Пока нет сообщений.</div>';
                 return;
             }
             // Удаляем плейсхолдер, если был
