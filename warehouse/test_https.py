@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 
 SETTINGS_FILE = (Path(__file__).resolve().parent.parent
                  / 'warehouse_config' / 'settings.py')
@@ -220,6 +220,90 @@ class RedirectIsRecoverableTest(TestCase):
         response = self.client.get('/login/', secure=True)
         self.assertIn('max-age=3600',
                       response.headers.get('Strict-Transport-Security', ''))
+
+
+@override_settings(ALLOWED_HOSTS=['192.168.1.63', 'testserver'])
+class CsrfFailurePageTest(TestCase):
+    """Отказ должен называть причину, а не только факт отказа.
+
+    Собственный опыт: «Ошибка проверки CSRF. Запрос отклонён» — всё, что
+    видел кладовщик, когда перед системой стоял nginx с шифрованием, а
+    системе об этом не сказали. Страница входа открывалась прекрасно,
+    пароль был верный, а войти было нельзя. Разобрать это по одной
+    строке невозможно.
+    """
+
+    def setUp(self):
+        # Обычный тестовый клиент проверку подлинности не выполняет —
+        # иначе каждый тест форм пришлось бы начинать с получения
+        # токена. Здесь проверяется как раз она, поэтому включаем.
+        self.client = Client(enforce_csrf_checks=True)
+
+    def post(self, secure=False, **headers):
+        """Отправить форму так, чтобы проверка её отклонила.
+
+        Куки и токена нет намеренно — важно не как отклонили, а что
+        покажут в ответ.
+        """
+        return self.client.post('/login/', {'username': 'x', 'password': 'y'},
+                                secure=secure, **headers)
+
+    def text(self, response):
+        return response.content.decode('utf-8')
+
+    def test_proxy_mismatch_is_named(self):
+        """Главная проверка: браузер на https, система считает http."""
+        response = self.post(HTTP_HOST='192.168.1.63',
+                             HTTP_ORIGIN='https://192.168.1.63')
+        self.assertEqual(response.status_code, 403)
+        body = self.text(response)
+        self.assertIn('USE_HTTPS=True', body)
+        self.assertIn('CSRF_TRUSTED_ORIGINS=https://192.168.1.63', body)
+
+    def test_proxy_mismatch_seen_by_forwarded_header(self):
+        """Origin браузер шлёт не всегда — nginx свою пометку шлёт всегда."""
+        response = self.post(HTTP_HOST='192.168.1.63',
+                             HTTP_X_FORWARDED_PROTO='https')
+        self.assertIn('USE_HTTPS=True', self.text(response))
+
+    def test_forwarded_header_with_list_of_values(self):
+        """Через несколько посредников пометка приходит списком."""
+        response = self.post(HTTP_HOST='192.168.1.63',
+                             HTTP_X_FORWARDED_PROTO='https, http')
+        self.assertIn('USE_HTTPS=True', self.text(response))
+
+    def test_missing_cookie_is_named(self):
+        """Второй частый случай — куки, оставшиеся от прежнего HTTPS."""
+        response = self.post(HTTP_HOST='192.168.1.63',
+                             HTTP_ORIGIN='http://192.168.1.63')
+        body = self.text(response)
+        self.assertIn('куки', body)
+        self.assertIn('InPrivate', body)
+        self.assertNotIn('USE_HTTPS=True', body)
+
+    def test_secure_request_is_not_blamed_on_the_proxy(self):
+        """Когда система и сама знает, что соединение защищено, эта
+        подсказка была бы враньём."""
+        response = self.post(secure=True, HTTP_HOST='192.168.1.63',
+                             HTTP_ORIGIN='https://192.168.1.63')
+        self.assertNotIn('USE_HTTPS=True', self.text(response))
+
+    def test_ordinary_failure_gets_ordinary_advice(self):
+        """Кука на месте, схемы совпадают — обычная просроченная форма."""
+        self.client.cookies['csrftoken'] = 'x' * 64
+        response = self.post(HTTP_HOST='192.168.1.63',
+                             HTTP_ORIGIN='http://192.168.1.63')
+        body = self.text(response)
+        self.assertIn('обновить страницу', body)
+        self.assertNotIn('USE_HTTPS=True', body)
+
+    def test_page_opens_without_styles_and_templates(self):
+        """Страница отказа не должна зависеть от собранного оформления:
+        она нужна как раз тогда, когда что-то не в порядке."""
+        response = self.post(HTTP_HOST='192.168.1.63',
+                             HTTP_ORIGIN='https://192.168.1.63')
+        self.assertIn('text/html', response['Content-Type'])
+        self.assertIn('<!doctype html>', self.text(response))
 
 
 class HstsPeriodTest(TestCase):
