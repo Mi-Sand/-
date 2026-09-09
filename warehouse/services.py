@@ -6,7 +6,17 @@
 изменяемых строк остатков (select_for_update), что исключает
 рассогласование данных при одновременной работе нескольких пользователей и
 появление отрицательных остатков.
+
+Оговорка про блокировку: держит её только PostgreSQL. SQLite такой
+блокировки не умеет, и запрос уходит в базу без неё — но там
+одновременных проведений не бывает по другой причине: сделка сразу берёт
+право на запись целиком (transaction_mode=IMMEDIATE в настройках), и
+второе проведение ждёт, пока первое закончится. Проверено опытом на обеих
+базах: два одновременных списания последней единицы дают одно проведение
+и один отказ, остаток в минус не уходит.
 """
+from decimal import Decimal
+
 from django.db import transaction
 
 from .models import (InboundDocument, OutboundDocument, PriceHistory, Stock,
@@ -111,6 +121,61 @@ def process_outbound_document(doc_id, user=None):
     return doc
 
 
+def _read_number(value, name):
+    """Перевести пришедшее значение в число, не падая на мусоре.
+
+    Строка «абв» и пустое значение переводятся в число не молча: Decimal
+    отвечает своей ошибкой (InvalidOperation), а она — не ValueError, и
+    обработчик её не ловил. Запрос доходил до конца и оборачивался
+    ошибкой сервера вместо понятного отказа.
+    """
+    try:
+        number = Decimal(str(value))
+    except (TypeError, ArithmeticError):
+        raise ValueError(f'{name} — не число')
+    # «Бесконечность» и «не число» переводятся успешно, но любое
+    # сравнение с ними ложно, и проверка «больше нуля» их пропускает
+    if not number.is_finite():
+        raise ValueError(f'{name} — не число')
+    return number
+
+
+def _read_id(value, name):
+    """Перевести значение в номер записи."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'{name} указан неверно')
+
+
+def _read_materials(materials):
+    """Разобрать список материалов для выпуска продукции.
+
+    Проверяется всё: что список — это список, что каждая строка похожа
+    на строку с материалом и количеством и что количество — число.
+    Раньше проверок не было, и строка вместо списка (или количество
+    «абв») роняла обработчик: кладовщик получал «ошибка сервера» вместо
+    объяснения, что не так.
+
+    Возвращает список пар (id материала, количество).
+    """
+    if not isinstance(materials, (list, tuple)):
+        raise ValueError('Неверный формат списка материалов')
+
+    rows = []
+    for row in materials:
+        if not isinstance(row, dict):
+            raise ValueError('Неверный формат строки материала')
+        if 'material' not in row:
+            raise ValueError('В строке не указан материал')
+        if 'quantity' not in row:
+            raise ValueError('В строке не указано количество материала')
+        rows.append((_read_id(row['material'], 'Материал'),
+                     _read_number(row['quantity'],
+                                  'Количество материала')))
+    return rows
+
+
 @transaction.atomic
 def produce_product(product_id, quantity, product_warehouse_id,
                     materials, material_warehouse_id, user=None):
@@ -131,15 +196,30 @@ def produce_product(product_id, quantity, product_warehouse_id,
 
     При нехватке любого материала операция полностью откатывается.
     """
-    from decimal import Decimal
     from .models import (Material, ProductionMaterial, ProductionRun,
-                         Product)
+                         Product, Warehouse)
 
-    quantity = Decimal(str(quantity))
+    quantity = _read_number(quantity, 'Количество продукции')
     if quantity <= 0:
         raise ValueError('Количество продукции должно быть больше нуля')
 
-    product = Product.objects.get(pk=product_id)
+    rows = _read_materials(materials)
+
+    # Справочники проверяем до создания документа выпуска. Страница
+    # могла быть открыта давно, а товар или склад за это время убрали:
+    # без проверки такой запрос доходил до записи в базу и обрывался
+    # ошибкой сервера.
+    try:
+        product = Product.objects.get(pk=_read_id(product_id, 'Товар'))
+    except Product.DoesNotExist:
+        raise ValueError('Товар не найден — возможно, его удалили')
+
+    for warehouse_id, name in (
+            (product_warehouse_id, 'Склад продукции'),
+            (material_warehouse_id, 'Склад сырья')):
+        if not Warehouse.objects.filter(
+                pk=_read_id(warehouse_id, name)).exists():
+            raise ValueError(f'{name} не найден — возможно, его удалили')
 
     # Документ выпуска: без него производство не оставляло следа, и
     # восстановить, из чего сделана партия, было нельзя
@@ -155,12 +235,13 @@ def produce_product(product_id, quantity, product_warehouse_id,
     consumed = []
 
     # 1. Списываем материалы (с проверкой достаточности)
-    for row in materials:
-        mat_id = row['material']
-        mat_qty = Decimal(str(row['quantity']))
+    for mat_id, mat_qty in rows:
         if mat_qty <= 0:
             continue
-        material = Material.objects.get(pk=mat_id)
+        try:
+            material = Material.objects.get(pk=mat_id)
+        except Material.DoesNotExist:
+            raise ValueError('Материал не найден — возможно, его удалили')
         try:
             stock = (Stock.objects
                      .select_for_update()

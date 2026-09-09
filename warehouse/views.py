@@ -596,7 +596,9 @@ def produce_view(request):
     except InsufficientStockError as e:
         return Response({'error': str(e)},
                         status=status.HTTP_400_BAD_REQUEST)
-    except (KeyError, ValueError) as e:
+    except (KeyError, TypeError, ValueError) as e:
+        # TypeError — когда тело запроса вообще не похоже на форму
+        # выпуска (пришёл список или строка вместо набора полей)
         return Response({'error': f'Некорректные данные: {e}'},
                         status=status.HTTP_400_BAD_REQUEST)
 

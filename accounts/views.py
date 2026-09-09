@@ -46,16 +46,46 @@ def chat_messages(request):
             return Response({'error': 'Пустое сообщение'},
                             status=status.HTTP_400_BAD_REQUEST)
         recipient_id = request.data.get('recipient')
+        if recipient_id:
+            # Собеседника проверяем до записи. Раньше не проверяли, и
+            # номер несуществующего сотрудника (или строка вместо
+            # номера) доходил до базы, где отвергался уже как поломка —
+            # отправитель видел «ошибка сервера».
+            try:
+                recipient_id = int(recipient_id)
+            except (TypeError, ValueError):
+                return Response({'error': 'Получатель указан неверно'},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if not User.objects.filter(pk=recipient_id,
+                                       is_active=True).exists():
+                return Response({'error': 'Получатель не найден'},
+                                status=status.HTTP_400_BAD_REQUEST)
+        else:
+            recipient_id = None
         msg = ChatMessage.objects.create(
-            sender=me,
-            recipient_id=recipient_id if recipient_id else None,
-            text=text)
+            sender=me, recipient_id=recipient_id, text=text)
         return Response(ChatMessageSerializer(msg).data,
                         status=status.HTTP_201_CREATED)
 
     # GET
     with_user = request.query_params.get('with')
     after = request.query_params.get('after')
+
+    # Оба параметра приходят из адресной строки, то есть могут быть чем
+    # угодно. Нечисловое значение база принять не может и отвечает
+    # поломкой, поэтому разбираем их сами.
+    if with_user:
+        try:
+            with_user = int(with_user)
+        except (TypeError, ValueError):
+            return Response({'error': 'Собеседник указан неверно'},
+                            status=status.HTTP_400_BAD_REQUEST)
+    if after:
+        try:
+            after = int(after)
+        except (TypeError, ValueError):
+            return Response({'error': 'Неверная отметка последнего сообщения'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
     if with_user:
         # Личная переписка между me и with_user (в обе стороны)
@@ -183,6 +213,13 @@ def chat_mark_read(request):
     peer_id = request.data.get('with') or None
 
     if peer_id:
+        # Как и в чтении переписки: номер приходит снаружи, и нечисловое
+        # значение база принять не может
+        try:
+            peer_id = int(peer_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'Собеседник указан неверно'},
+                            status=status.HTTP_400_BAD_REQUEST)
         newest = (ChatMessage.objects
                   .filter(sender_id=peer_id, recipient=me)
                   .order_by('-id').first())
