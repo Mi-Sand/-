@@ -139,6 +139,21 @@ class HttpsCheckTest(TestCase):
         self.assertIn('Работа по HTTP', text)
         self.assertIn('HTTPS.md', text)
 
+    @override_settings(USE_HTTPS=False, DEBUG=False)
+    def test_leftover_cookies_are_explained(self):
+        """Выключить HTTPS мало — в браузере остаются его куки.
+
+        Они помечены «только по защищённому соединению»: по http
+        браузер их не шлёт, а заменить их страница по http не вправе —
+        таково правило самих браузеров. Выходит тупик, переживающий и
+        правку настроек, и перезапуск, и очистку кэша. Со стороны
+        выглядит как «настройки верные, а войти нельзя», и догадаться
+        про куки без подсказки почти невозможно.
+        """
+        text = self.check()
+        self.assertIn('CSRF', text)
+        self.assertIn('куки', text)
+
     @override_settings(USE_HTTPS=True,
                        CSRF_TRUSTED_ORIGINS=['https://sklad.leko.local'])
     def test_way_back_is_explained(self):
