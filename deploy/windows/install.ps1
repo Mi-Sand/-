@@ -252,8 +252,11 @@ Write-Head 'База данных'
 function Invoke-Manage([string[]]$Arguments) {
     Push-Location $ProjectRoot
     try {
-        $output = & $VenvPython 'manage.py' @Arguments 2>&1
+        $prevEA = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $output = & $VenvPython '-X' 'utf8' 'manage.py' @Arguments 2>&1
         $code = $LASTEXITCODE
+        $ErrorActionPreference = $prevEA
     } finally {
         Pop-Location
     }
