@@ -24,15 +24,25 @@
     Не выполнять git pull. Используйте, если обновляете распаковкой архива
     поверх: тогда сначала распакуйте файлы, потом запустите скрипт.
 
+.PARAMETER Branch
+    Ветка, с которой брать обновление. Без неё берётся та, на которой
+    система сейчас — обычно main, и это правильный выбор в обычной жизни.
+
+    Нужна, когда исправление лежит в отдельной ветке и ещё не попало в
+    main. Без неё обновление в таком случае честно скажет «код уже
+    последней версии» и ничего не привезёт — искать причину можно долго.
+
 .EXAMPLE
     .\update.ps1
     .\update.ps1 -SkipMedia
     .\update.ps1 -NoPull
+    .\update.ps1 -Branch имя-ветки
 #>
 [CmdletBinding()]
 param(
     [switch]$SkipMedia,
-    [switch]$NoPull
+    [switch]$NoPull,
+    [string]$Branch
 )
 
 Set-StrictMode -Version Latest
@@ -238,6 +248,13 @@ if ($NoPull) {
     try {
         $before = (& git rev-parse --short HEAD 2>$null)
 
+        # С какой веткой работаем — говорим вслух. Без этой строки самая
+        # обидная неудача обновления выглядит как удача: система стоит
+        # на одной ветке, исправление лежит в другой, и обновление
+        # бодро сообщает «код уже последней версии».
+        $currentBranch = (& git rev-parse --abbrev-ref HEAD 2>$null)
+        Write-Note "Ветка: $currentBranch"
+
         # Файлы программы, изменённые прямо в рабочей папке, останавливают
         # обновление: git не станет затирать чужую правку. На складском
         # компьютере такая правка почти всегда случайна — открыли файл,
@@ -263,11 +280,48 @@ if ($NoPull) {
             }
         }
 
-        & git pull
-        $pullCode = $LASTEXITCODE
+        # Переход на другую ветку, если её попросили. Отложенные выше
+        # правки этому не мешают — рабочая папка уже чистая.
+        $switchFailed = ''
+        if ($Branch -and $Branch -ne $currentBranch) {
+            Write-Note "Перехожу на ветку $Branch"
+            & git fetch origin $Branch
+            if ($LASTEXITCODE -ne 0) {
+                $switchFailed = "ветку «$Branch» не удалось получить с сервера"
+            } else {
+                # Обычный checkout: если такая ветка уже заведена — просто
+                # переключается, если нет — заводит её от серверной.
+                # Намеренно не -B: тот сбросил бы ветку к серверной и унёс
+                # бы всё, что могли сделать на этом компьютере.
+                & git checkout $Branch
+                if ($LASTEXITCODE -ne 0) {
+                    $switchFailed = "на ветку «$Branch» не удалось перейти"
+                } else {
+                    $currentBranch = $Branch
+                    Write-Ok "ветка: $Branch"
+                }
+            }
+        }
+
+        if (-not $switchFailed) {
+            & git pull
+            $pullCode = $LASTEXITCODE
+        } else {
+            $pullCode = 0
+        }
         $after = (& git rev-parse --short HEAD 2>$null)
     } finally {
         Pop-Location
+    }
+
+    if ($switchFailed) {
+        Stop-WithError @"
+$switchFailed.
+
+Проверьте, что имя написано в точности, и что есть связь с сервером.
+Список веток покажет команда, выполненная в папке программы:
+    git branch --all
+"@
     }
 
     if ($pullCode -ne 0) {
@@ -280,9 +334,9 @@ if ($NoPull) {
     }
 
     if ($before -eq $after) {
-        Write-Ok "код уже последней версии ($after)"
+        Write-Ok "код уже последней версии ($after), ветка $currentBranch"
     } else {
-        Write-Ok "код обновлён: $before -> $after"
+        Write-Ok "код обновлён: $before -> $after (ветка $currentBranch)"
     }
 }
 
