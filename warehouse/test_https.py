@@ -6,6 +6,7 @@
 соединению» просто не дойдут. Забыть перечислить адреса — получить
 «подделка запроса» на форме входа, причём не сразу.
 """
+import sys
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -137,3 +138,117 @@ class HttpsCheckTest(TestCase):
         text = self.check()
         self.assertIn('Работа по HTTP', text)
         self.assertIn('HTTPS.md', text)
+
+    @override_settings(USE_HTTPS=True,
+                       CSRF_TRUSTED_ORIGINS=['https://sklad.leko.local'])
+    def test_way_back_is_explained(self):
+        """Подсказка про возврат нужна именно тогда, когда всё «в порядке».
+
+        Настройки могут быть согласованы, а HTTPS всё равно не работать —
+        сертификат не тот, nginx не запущен. Снаружи это выглядит как
+        «не может обеспечить безопасное подключение», и по такому
+        сообщению причину не угадать.
+        """
+        text = self.check()
+        self.assertIn('ERR_SSL_PROTOCOL_ERROR', text)
+        self.assertIn('USE_HTTPS=False', text)
+
+
+class RedirectIsRecoverableTest(TestCase):
+    """Перенаправление на https не должно быть необратимым.
+
+    «301 Moved Permanently» браузеры запоминают насовсем: выключить
+    USE_HTTPS обратно уже не помогает, потому что запрос до сервера
+    просто не доходит. Разбирать это приходится через настройки самого
+    браузера — то есть силами того, кто знает, что такое HSTS и кэш
+    перенаправлений.
+    """
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_redirect_is_temporary(self):
+        """Главная проверка: 302, а не 301."""
+        response = self.client.get('/login/')
+        self.assertEqual(response.status_code, 302)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_redirect_leads_to_https(self):
+        """Временное — не значит бесполезное: адрес тот же."""
+        response = self.client.get('/login/')
+        self.assertTrue(response['Location'].startswith('https://'))
+        self.assertTrue(response['Location'].endswith('/login/'))
+
+    @override_settings(SECURE_SSL_REDIRECT=False)
+    def test_no_redirect_without_https(self):
+        """Без USE_HTTPS страница входа открывается как обычно."""
+        response = self.client.get('/login/')
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(SECURE_SSL_REDIRECT=True, SECURE_HSTS_SECONDS=3600)
+    def test_hsts_still_works_over_https(self):
+        """Постоянство даёт HSTS — от замены 301 на 302 оно не пропало."""
+        response = self.client.get('/login/', secure=True)
+        self.assertIn('max-age=3600',
+                      response.headers.get('Strict-Transport-Security', ''))
+
+
+class HstsPeriodTest(TestCase):
+    """Срок памяти браузера должен настраиваться.
+
+    Пока он был зашит в программу, у запертого снаружи администратора не
+    оставалось никакого хода: снять память нельзя ни настройкой, ни
+    перезапуском.
+    """
+
+    def test_default_is_half_a_year(self):
+        """Кто не трогал .env, получает прежние полгода."""
+        loaded = settings_with(USE_HTTPS='True')
+        self.assertEqual(loaded.SECURE_HSTS_SECONDS, 60 * 60 * 24 * 180)
+
+    def test_can_be_switched_off_while_setting_up(self):
+        """Ноль — «не запоминать»: вернуться к http можно в любой миг."""
+        loaded = settings_with(USE_HTTPS='True', HSTS_SECONDS='0')
+        self.assertEqual(loaded.SECURE_HSTS_SECONDS, 0)
+
+    def test_can_be_set_to_a_day(self):
+        loaded = settings_with(USE_HTTPS='True', HSTS_SECONDS='86400')
+        self.assertEqual(loaded.SECURE_HSTS_SECONDS, 86400)
+
+    def test_nonsense_value_is_explained_at_start(self):
+        """Опечатка не должна оборачиваться загадочной поломкой позже."""
+        with self.assertRaises(RuntimeError) as caught:
+            settings_with(USE_HTTPS='True', HSTS_SECONDS='полгода')
+        self.assertIn('HSTS_SECONDS', str(caught.exception))
+
+
+class DevServerWarningTest(TestCase):
+    """Сервер разработки и USE_HTTPS вместе — всегда тупик.
+
+    Перед runserver никто не ставит nginx, ради которого USE_HTTPS и
+    заводят. Молчать про это сочетание нельзя: браузер покажет невнятное
+    «не может обеспечить безопасное подключение», а в чём дело — не
+    скажет никто.
+    """
+
+    def warning(self, argv, use_https):
+        from warehouse.apps import WarehouseConfig
+
+        stderr = StringIO()
+        with patch.object(sys, 'argv', argv), \
+                patch.object(sys, 'stderr', stderr), \
+                override_settings(USE_HTTPS=use_https):
+            WarehouseConfig._warn_about_https_on_dev_server()
+        return stderr.getvalue()
+
+    def test_warns_on_runserver_with_https(self):
+        text = self.warning(['manage.py', 'runserver'], use_https=True)
+        self.assertIn('USE_HTTPS', text)
+        self.assertIn('ERR_SSL_PROTOCOL_ERROR', text)
+
+    def test_silent_on_runserver_without_https(self):
+        self.assertEqual(
+            self.warning(['manage.py', 'runserver'], use_https=False), '')
+
+    def test_silent_on_other_commands(self):
+        """При обычных командах предупреждение только мешало бы."""
+        self.assertEqual(
+            self.warning(['manage.py', 'migrate'], use_https=True), '')
