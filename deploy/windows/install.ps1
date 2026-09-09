@@ -54,7 +54,7 @@ $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 
 # Пути. Скрипт лежит в deploy\windows, программа — двумя уровнями выше.
-$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
+$ProjectRoot = (Resolve-Path (Join-Path (Join-Path $PSScriptRoot '..') '..')).Path
 $VenvDir = Join-Path $ProjectRoot 'venv'
 # На Windows исполняемые файлы окружения лежат в Scripts, на прочих
 # системах — в bin. Разница нужна не ради других систем, а ради того,
