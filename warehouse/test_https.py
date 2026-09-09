@@ -153,6 +153,22 @@ class HttpsCheckTest(TestCase):
         self.assertIn('ERR_SSL_PROTOCOL_ERROR', text)
         self.assertIn('USE_HTTPS=False', text)
 
+    @override_settings(USE_HTTPS=True,
+                       CSRF_TRUSTED_ORIGINS=['https://sklad.leko.local'])
+    def test_csrf_symptom_is_named(self):
+        """У той же беды есть второе лицо, совсем на первое не похожее.
+
+        Когда впереди стоит nginx, он говорит системе «соединение
+        защищено», даже если сотрудник открыл её по обычному http.
+        Перенаправления тогда не происходит, страница входа открывается
+        как ни в чём не бывало — а куки уходят с пометкой «только по
+        защищённому соединению», и браузер их не сохраняет. Нажатие
+        «Войти» отвечает «Ошибка проверки CSRF», и связать это с
+        настройками шифрования без подсказки невозможно.
+        """
+        text = self.check()
+        self.assertIn('CSRF', text)
+
 
 class RedirectIsRecoverableTest(TestCase):
     """Перенаправление на https не должно быть необратимым.
